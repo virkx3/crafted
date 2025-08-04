@@ -1,12 +1,15 @@
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const unzipper = require("unzipper");
-const axios = require("axios");
 const ffmpeg = require("fluent-ffmpeg");
 const ffmpegPath = require("ffmpeg-static");
 const fs = require("fs");
 const path = require("path");
 const express = require("express");
+const axios = require("axios");
+
+puppeteer.use(StealthPlugin());
+ffmpeg.setFfmpegPath(ffmpegPath);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,37 +18,49 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Healthcheck on port ${PORT}`);
 });
 
-puppeteer.use(StealthPlugin());
-ffmpeg.setFfmpegPath(ffmpegPath);
-
-const ZIP_URL = "https://drive.usercontent.google.com/download?id=14K0pHj8XSZ2kllJTaGN2Gs8u3Dp86utj&export=download&confirm=t&uuid=0a6269f9-314e-44a3-aaf7-f25233b2bcfa";
+const ZIP_URL = "https://drive.usercontent.google.com/open?id=14K0pHj8XSZ2kllJTaGN2Gs8u3Dp86utj";
 const ZIP_FILE = "videos.zip";
 const VIDEO_DIR = "downloads";
 const WATERMARK = "ig/iamvirk05";
-const USED_FILE = "used_videos.json";
 
 const delay = (ms) => new Promise(r => setTimeout(r, ms));
 
-// === USED LIST ===
-let usedVideos = [];
-if (fs.existsSync(USED_FILE)) {
-  usedVideos = JSON.parse(fs.readFileSync(USED_FILE, "utf8"));
-}
-
-// === UTILS ===
-async function downloadZip() {
+// === DOWNLOAD ZIP WITH PUPPETEER ===
+async function downloadZipWithPuppeteer() {
   if (fs.existsSync(ZIP_FILE)) {
     console.log("✅ ZIP already downloaded");
     return;
   }
-  console.log("📥 Downloading ZIP from Google Drive...");
-  const res = await axios({ url: ZIP_URL, method: "GET", responseType: "stream" });
+
+  console.log("📥 Launching Puppeteer to download ZIP...");
+
+  const browser = await puppeteer.launch({ headless: "new", args: ["--no-sandbox"] });
+  const page = await browser.newPage();
+  await page.goto(ZIP_URL, { waitUntil: "networkidle2" });
+
+  console.log("🔍 Looking for Download Anyway button...");
+
+  await page.waitForSelector('#uc-download-link', { timeout: 15000 });
+  const downloadUrl = await page.$eval('form#download-form', form => {
+    const params = new URLSearchParams(new FormData(form)).toString();
+    return form.action + '?' + params;
+  });
+
+  console.log("✅ Found real download URL:", downloadUrl);
+
+  // Close browser, use axios for large stream
+  await browser.close();
+
+  console.log("⏬ Streaming ZIP to disk...");
+  const res = await axios({ url: downloadUrl, method: "GET", responseType: "stream" });
   const output = fs.createWriteStream(ZIP_FILE);
   res.data.pipe(output);
   await new Promise(r => output.on("finish", r));
+
   console.log("✅ ZIP downloaded");
 }
 
+// === UNZIP ===
 async function unzip() {
   if (!fs.existsSync(VIDEO_DIR)) fs.mkdirSync(VIDEO_DIR);
   const files = fs.readdirSync(VIDEO_DIR).filter(f => f.endsWith(".mp4"));
@@ -54,15 +69,12 @@ async function unzip() {
     return;
   }
   console.log("📦 Unzipping videos...");
-  await fs.createReadStream(ZIP_FILE)
-    .pipe(unzipper.Extract({ path: VIDEO_DIR }))
-    .promise();
+  await fs.createReadStream(ZIP_FILE).pipe(unzipper.Extract({ path: VIDEO_DIR })).promise();
   console.log("✅ Unzipped");
 }
 
 function pickRandomVideo() {
-  const files = fs.readdirSync(VIDEO_DIR)
-    .filter(f => f.endsWith(".mp4") && !usedVideos.includes(f));
+  const files = fs.readdirSync(VIDEO_DIR).filter(f => f.endsWith(".mp4"));
   if (!files.length) throw new Error("❌ No videos left!");
   const file = files[Math.floor(Math.random() * files.length)];
   return path.join(VIDEO_DIR, file);
@@ -219,7 +231,7 @@ async function uploadReel(page, videoPath, caption) {
 }
 
 async function main() {
-  await downloadZip();
+  await downloadZipWithPuppeteer();
   await unzip();
 
   const browser = await puppeteer.launch({ headless: "new", args: ["--no-sandbox"] });
@@ -247,9 +259,8 @@ async function main() {
       const uploaded = await uploadReel(page, watermarkedPath, caption);
 
       if (uploaded) {
-        usedVideos.push(path.basename(reelPath));
-        fs.writeFileSync(USED_FILE, JSON.stringify(usedVideos, null, 2));
-        console.log(`✅ Marked used: ${path.basename(reelPath)}`);
+        fs.unlinkSync(reelPath);
+        console.log(`🗑️ Deleted ${path.basename(reelPath)}`);
       }
 
       console.log("⏱️ Sleeping 3 hours");
