@@ -8,6 +8,9 @@ const fs = require("fs");
 const path = require("path");
 const express = require("express");
 
+puppeteer.use(StealthPlugin());
+ffmpeg.setFfmpegPath(ffmpegPath);
+
 const app = express();
 const PORT = process.env.PORT || 8080;
 app.get('/', (_, res) => res.send('Bot is alive'));
@@ -15,15 +18,15 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Healthcheck on port ${PORT}`);
 });
 
-puppeteer.use(StealthPlugin());
-ffmpeg.setFfmpegPath(ffmpegPath);
-
-const ZIP_URL = "https://www.dropbox.com/scl/fi/k9hfqt399zwtfvkb19t44/4000-Arts-Crafts-Reels-Profilecard.com-20230805T075144Z-014.zip?rlkey=pi9uwa71skr40nqfpsp0e4j9f&e=2&st=e13a47fv&dl=1"; // ✅ set ?dl=1
+const ZIP_URL = "YOUR_DIRECT_DROPBOX_LINK"; // ?dl=1
 const ZIP_FILE = "videos.zip";
 const VIDEO_DIR = "downloads";
+const SOUND_DIR = "sounds";
 const WATERMARK = "ig/iamvirk05";
 
 const delay = ms => new Promise(r => setTimeout(r, ms));
+
+// ------------------ DOWNLOAD + UNZIP ------------------
 
 async function downloadZip() {
   if (fs.existsSync(ZIP_FILE)) {
@@ -32,9 +35,7 @@ async function downloadZip() {
     if (stats.size < 100 * 1024 * 1024) {
       console.log("⚠️ ZIP too small, redownloading...");
       fs.unlinkSync(ZIP_FILE);
-    } else {
-      return;
-    }
+    } else return;
   }
 
   console.log("📥 Downloading ZIP...");
@@ -42,8 +43,7 @@ async function downloadZip() {
   const output = fs.createWriteStream(ZIP_FILE);
   res.data.pipe(output);
   await new Promise(r => output.on("finish", r));
-  const stats = fs.statSync(ZIP_FILE);
-  console.log(`✅ ZIP downloaded, size: ${stats.size} bytes`);
+  console.log(`✅ ZIP downloaded, size: ${fs.statSync(ZIP_FILE).size} bytes`);
 }
 
 async function unzip() {
@@ -79,11 +79,21 @@ function walkSync(dir) {
   });
 }
 
+// ------------------ VIDEO PICK & EDIT ------------------
+
 function pickRandomVideo() {
   const files = walkSync(VIDEO_DIR).filter(f => f.endsWith(".mp4"));
   if (!files.length) throw new Error("❌ No videos left!");
   const file = files[Math.floor(Math.random() * files.length)];
   console.log(`🎥 Picked: ${file}`);
+  return file;
+}
+
+function pickRandomSound() {
+  const sounds = walkSync(SOUND_DIR).filter(f => f.endsWith(".mp3") || f.endsWith(".wav"));
+  if (!sounds.length) throw new Error("❌ No sound files found in sounds/");
+  const file = sounds[Math.floor(Math.random() * sounds.length)];
+  console.log(`🔊 Picked sound: ${file}`);
   return file;
 }
 
@@ -107,10 +117,11 @@ function getRandomOverlayText() {
   return overlays[Math.floor(Math.random() * overlays.length)].replace(/'/g, "\\'");
 }
 
-function addWatermark(input, output) {
+function processVideo(input, output, audioFile) {
   const overlayText = getRandomOverlayText();
   return new Promise((resolve, reject) => {
     ffmpeg(input)
+      .noAudio()
       .videoFilters([
         {
           filter: "drawtext",
@@ -137,14 +148,19 @@ function addWatermark(input, output) {
             bordercolor: "black",
             x: "(w-text_w)/2",
             y: "(h-text_h)/1.5",
-            boxcolor: "white@1.0",
             enable: "between(t,1,4)"
           }
         },
         { filter: "eq", options: "brightness=0.02:contrast=1.1" },
         { filter: "crop", options: "iw*0.98:ih*0.98" }
       ])
-      .outputOptions(["-preset veryfast", "-threads 1"])
+      .outputOptions("-preset veryfast")
+      .complexFilter([
+        `[0:v][1:a]concat=n=1:v=1:a=1 [v] [a]`
+      ])
+      .input(audioFile)
+      .map('v')
+      .map('a')
       .output(output)
       .on("end", () => resolve(output))
       .on("error", reject)
@@ -152,8 +168,10 @@ function addWatermark(input, output) {
   });
 }
 
+// ------------------ UPLOAD ------------------
+
 async function uploadReel(page, videoPath, caption) {
-  try {
+ try {
     console.log("⬆️ Uploading reel...");
 
     if (!fs.existsSync(videoPath)) {
@@ -273,54 +291,50 @@ async function uploadReel(page, videoPath, caption) {
   }
 }
 
+// ------------------ MAIN LOOP ------------------
+
 async function main() {
   await downloadZip();
   await unzip();
 
-  const browser = await puppeteer.launch({
-    headless: false, // debug it visually first
-    args: ["--no-sandbox"]
-  });
+  const browser = await puppeteer.launch({ headless: false, args: ["--no-sandbox"] });
   const page = await browser.newPage();
 
-   try {
-    console.log("🔑 Trying to load session from GitHub...");
+  // Load session
+  try {
     const cookies = JSON.parse(fs.readFileSync("session.json", "utf8"));
     await page.setCookie(...cookies);
-    console.log("✅ Session loaded from GitHub");
+    console.log("✅ Session loaded");
   } catch {
-    console.log("⚠️ Failed GitHub session, trying local session.json...");
-    const cookies = JSON.parse(fs.readFileSync("session.json", "utf8"));
-    await page.setCookie(...cookies);
-    console.log("✅ Session loaded from local file");
+    console.log("⚠️ session.json not found or invalid");
   }
 
-
   while (true) {
-    let reelPath, watermarkedPath;
+    let reelPath, processedPath;
     try {
       reelPath = pickRandomVideo();
-      watermarkedPath = reelPath.replace(".mp4", `_wm_${Date.now()}.mp4`);
-      await addWatermark(reelPath, watermarkedPath);
-      console.log("✅ Watermarked:", watermarkedPath);
+      const soundPath = pickRandomSound();
+      processedPath = reelPath.replace(".mp4", `_final_${Date.now()}.mp4`);
+      await processVideo(reelPath, processedPath, soundPath);
 
       const caption = `${getRandomCaption()}\n\n${getRandomHashtags()}`;
-      const uploaded = await uploadReel(page, watermarkedPath, caption);
+      const uploaded = await uploadReel(page, processedPath, caption);
 
       if (uploaded) {
         fs.unlinkSync(reelPath);
         console.log(`🗑️ Deleted: ${reelPath}`);
       } else {
-        console.log("❌ Upload failed — video NOT deleted!");
+        console.log("❌ Upload failed — not deleted");
       }
 
       console.log("⏱️ Sleeping 3 hours");
       await delay(3 * 60 * 60 * 1000);
+
     } catch (err) {
       console.error("❌ Loop error:", err);
       await delay(180000);
     } finally {
-      if (watermarkedPath && fs.existsSync(watermarkedPath)) fs.unlinkSync(watermarkedPath);
+      if (processedPath && fs.existsSync(processedPath)) fs.unlinkSync(processedPath);
     }
   }
 }
