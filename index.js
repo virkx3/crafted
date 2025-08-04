@@ -124,48 +124,60 @@ function processVideo(input, output, audioFile) {
       .input(input)
       .input(audioFile)
       .complexFilter([
-        // Filters only apply to video input
         {
-          filter: "drawtext",
+          filter: 'drawtext',
           options: {
-            fontfile: path.resolve(__dirname, "fonts/SF_Cartoonist_Hand_Bold.ttf"),
+            fontfile: path.resolve(__dirname, 'fonts/SF_Cartoonist_Hand_Bold.ttf'),
             text: WATERMARK,
             fontsize: 24,
-            fontcolor: "white",
-            x: "(w-text_w)-10",
-            y: "(h-text_h)-20",
+            fontcolor: 'white',
+            x: '(w-text_w)-10',
+            y: '(h-text_h)-20',
             box: 1,
-            boxcolor: "black@1.0",
+            boxcolor: 'black@1.0',
             boxborderw: 5
-          }
+          },
+          inputs: '[0:v]',
+          outputs: 'v1'
         },
         {
-          filter: "drawtext",
+          filter: 'drawtext',
           options: {
-            fontfile: path.resolve(__dirname, "fonts/RubikGemstones-Regular.ttf"),
+            fontfile: path.resolve(__dirname, 'fonts/RubikGemstones-Regular.ttf'),
             text: overlayText,
             fontsize: 36,
-            fontcolor: "white",
+            fontcolor: 'white',
             borderw: 2,
-            bordercolor: "black",
-            x: "(w-text_w)/2",
-            y: "(h-text_h)/1.5",
-            enable: "between(t,1,4)"
-          }
+            bordercolor: 'black',
+            x: '(w-text_w)/2',
+            y: '(h-text_h)/1.2',
+            enable: 'between(t,1,4)'
+          },
+          inputs: 'v1',
+          outputs: 'v2'
         },
-        { filter: "eq", options: "brightness=0.02:contrast=1.1" },
-        { filter: "crop", options: "iw*0.98:ih*0.98" }
+        {
+          filter: 'eq',
+          options: 'brightness=0.02:contrast=1.1',
+          inputs: 'v2',
+          outputs: 'v3'
+        },
+        {
+          filter: 'crop',
+          options: 'iw*0.98:ih*0.98',
+          inputs: 'v3',
+          outputs: 'v'
+        }
       ])
-      // This is the KEY: map video from input[0] and audio from input[1]
       .outputOptions([
-        "-map 0:v:0",
-        "-map 1:a:0",
-        "-shortest", // stop when the shorter of video/audio ends
-        "-preset veryfast"
+        '-map [v]', // final video stream from filter
+        '-map 1:a', // audio from second input
+        '-shortest',
+        '-preset veryfast'
       ])
       .output(output)
-      .on("end", () => resolve(output))
-      .on("error", reject)
+      .on('end', () => resolve(output))
+      .on('error', reject)
       .run();
   });
 }
