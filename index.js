@@ -95,14 +95,14 @@ function addWatermark(input, output) {
             x: "(w-text_w)-10",
             y: "(h-text_h)-20",
             box: 1,
-            boxcolor: "white@1.0",
+            boxcolor: "black@1.0",
             boxborderw: 5
           }
         },
         {
           filter: "drawtext",
           options: {
-            fontfile: path.resolve(__dirname, "fonts/ShinyCrystal-Yq3z4.ttf"),
+            fontfile: path.resolve(__dirname, "fonts/RubikGemstones-Regular.ttf"),
             text: overlayText,
             fontsize: 36,
             fontcolor: "white",
@@ -110,7 +110,7 @@ function addWatermark(input, output) {
             bordercolor: "black",
             x: "(w-text_w)/2",
             y: "(h-text_h)/1",
-            boxcolor: "black@1.0",
+            boxcolor: "white@1.0",
             enable: "between(t,1,4)"
           }
         },
