@@ -210,7 +210,7 @@ async function uploadReel(page, videoPath, caption) {
 }
 
 async function main() {
-  await downloadZipWithPuppeteer();
+  await downloadZip();
   await unzip();
 
   const browser = await puppeteer.launch({ headless: "new", args: ["--no-sandbox"] });
