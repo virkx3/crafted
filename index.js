@@ -32,32 +32,45 @@ async function downloadZipWithPuppeteer() {
     return;
   }
 
-  console.log("📥 Launching Puppeteer to download ZIP...");
+  console.log("📥 Launching Puppeteer to click 'Download anyway'...");
 
-  const browser = await puppeteer.launch({ headless: "new", args: ["--no-sandbox"] });
-  const page = await browser.newPage();
-  await page.goto(ZIP_URL, { waitUntil: "networkidle2" });
-
-  console.log("🔍 Looking for Download Anyway button...");
-
-  await page.waitForSelector('#uc-download-link', { timeout: 15000 });
-  const downloadUrl = await page.$eval('form#download-form', form => {
-    const params = new URLSearchParams(new FormData(form)).toString();
-    return form.action + '?' + params;
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox"]
   });
 
-  console.log("✅ Found real download URL:", downloadUrl);
+  const page = await browser.newPage();
+  await page.goto(ZIP_URL, { waitUntil: "networkidle2", timeout: 60000 });
 
-  // Close browser, use axios for large stream
-  await browser.close();
+  console.log("🔍 Waiting for 'Download anyway' button...");
 
-  console.log("⏬ Streaming ZIP to disk...");
-  const res = await axios({ url: downloadUrl, method: "GET", responseType: "stream" });
-  const output = fs.createWriteStream(ZIP_FILE);
-  res.data.pipe(output);
-  await new Promise(r => output.on("finish", r));
+  // Wait for the button by ID or by input[value] fallback
+  const [button] = await page.$x("//input[contains(@value, 'Download anyway')]");
+  if (!button) {
+    console.log("❌ Could not find 'Download anyway' button");
+    await browser.close();
+    throw new Error("No Download Anyway button found");
+  }
+
+  // Start watching downloads
+  const client = await page.target().createCDPSession();
+  await client.send('Page.setDownloadBehavior', {
+    behavior: 'allow',
+    downloadPath: __dirname
+  });
+
+  // Click the button to trigger download
+  await button.click();
+  console.log("✅ Clicked 'Download anyway'");
+
+  // Wait until file appears
+  while (!fs.existsSync(ZIP_FILE)) {
+    console.log("⏳ Waiting for ZIP to appear...");
+    await new Promise(r => setTimeout(r, 1000));
+  }
 
   console.log("✅ ZIP downloaded");
+  await browser.close();
 }
 
 // === UNZIP ===
