@@ -43,27 +43,17 @@ async function downloadZipWithPuppeteer() {
   await page.goto(ZIP_URL, { waitUntil: "networkidle2", timeout: 60000 });
 
   console.log("🔍 Waiting for 'Download anyway' button...");
+  await page.waitForSelector('#uc-download-link', { timeout: 20000 });
 
-  // Wait for the button by ID or by input[value] fallback
-  const [button] = await page.$x("//input[contains(@value, 'Download anyway')]");
-  if (!button) {
-    console.log("❌ Could not find 'Download anyway' button");
-    await browser.close();
-    throw new Error("No Download Anyway button found");
-  }
-
-  // Start watching downloads
   const client = await page.target().createCDPSession();
   await client.send('Page.setDownloadBehavior', {
     behavior: 'allow',
     downloadPath: __dirname
   });
 
-  // Click the button to trigger download
-  await button.click();
+  await page.click('#uc-download-link');
   console.log("✅ Clicked 'Download anyway'");
 
-  // Wait until file appears
   while (!fs.existsSync(ZIP_FILE)) {
     console.log("⏳ Waiting for ZIP to appear...");
     await new Promise(r => setTimeout(r, 1000));
