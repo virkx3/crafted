@@ -18,7 +18,7 @@ app.listen(PORT, '0.0.0.0', () => {
 puppeteer.use(StealthPlugin());
 ffmpeg.setFfmpegPath(ffmpegPath);
 
-const ZIP_URL = "YOUR_NEW_DROPBOX_DIRECT_LINK"; // ✅ set ?dl=1
+const ZIP_URL = "https://www.dropbox.com/scl/fi/k9hfqt399zwtfvkb19t44/4000-Arts-Crafts-Reels-Profilecard.com-20230805T075144Z-014.zip?rlkey=pi9uwa71skr40nqfpsp0e4j9f&e=2&st=e13a47fv&dl=1"; // ✅ set ?dl=1
 const ZIP_FILE = "videos.zip";
 const VIDEO_DIR = "downloads";
 const WATERMARK = "ig/iamvirk05";
