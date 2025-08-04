@@ -122,6 +122,7 @@ function processVideo(input, output, audioFile) {
   return new Promise((resolve, reject) => {
     ffmpeg(input)
       .noAudio()
+      .input(audioFile)
       .videoFilters([
         {
           filter: "drawtext",
@@ -154,13 +155,10 @@ function processVideo(input, output, audioFile) {
         { filter: "eq", options: "brightness=0.02:contrast=1.1" },
         { filter: "crop", options: "iw*0.98:ih*0.98" }
       ])
-      .outputOptions("-preset veryfast")
-      .complexFilter([
-        `[0:v][1:a]concat=n=1:v=1:a=1 [v] [a]`
+      .outputOptions([
+        "-preset veryfast",
+        "-shortest"
       ])
-      .input(audioFile)
-      .map('v')
-      .map('a')
       .output(output)
       .on("end", () => resolve(output))
       .on("error", reject)
