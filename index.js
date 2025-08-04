@@ -18,7 +18,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Healthcheck on port ${PORT}`);
 });
 
-const ZIP_URL = "YOUR_DIRECT_DROPBOX_LINK"; // ?dl=1
+const ZIP_URL = "https://www.dropbox.com/scl/fi/k9hfqt399zwtfvkb19t44/4000-Arts-Crafts-Reels-Profilecard.com-20230805T075144Z-014.zip?rlkey=pi9uwa71skr40nqfpsp0e4j9f&e=2&st=e13a47fv&dl=1"; // ?dl=1
 const ZIP_FILE = "videos.zip";
 const VIDEO_DIR = "downloads";
 const SOUND_DIR = "sounds";
