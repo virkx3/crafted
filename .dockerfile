@@ -1,0 +1,9 @@
+node_modules
+*.log
+*.zip
+downloads/
+used_videos.json
+.DS_Store
+.git
+.gitignore
+.env
