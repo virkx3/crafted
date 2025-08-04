@@ -118,7 +118,7 @@ function addWatermark(input, output) {
             fontfile: path.resolve(__dirname, "fonts/SF_Cartoonist_Hand_Bold.ttf"),
             text: WATERMARK,
             fontsize: 24,
-            fontcolor: "black",
+            fontcolor: "white",
             x: "(w-text_w)-10",
             y: "(h-text_h)-20",
             box: 1,
@@ -136,7 +136,7 @@ function addWatermark(input, output) {
             borderw: 2,
             bordercolor: "black",
             x: "(w-text_w)/2",
-            y: "(h-text_h)/1",
+            y: "(h-text_h)/1.5",
             boxcolor: "white@1.0",
             enable: "between(t,1,4)"
           }
