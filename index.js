@@ -22,8 +22,15 @@ const ZIP_URL = "https://drive.usercontent.google.com/download?id=14K0pHj8XSZ2kl
 const ZIP_FILE = "videos.zip";
 const VIDEO_DIR = "downloads";
 const WATERMARK = "ig/iamvirk05";
+const USED_FILE = "used_videos.json";
 
 const delay = (ms) => new Promise(r => setTimeout(r, ms));
+
+// === USED LIST ===
+let usedVideos = [];
+if (fs.existsSync(USED_FILE)) {
+  usedVideos = JSON.parse(fs.readFileSync(USED_FILE, "utf8"));
+}
 
 // === UTILS ===
 async function downloadZip() {
@@ -54,7 +61,8 @@ async function unzip() {
 }
 
 function pickRandomVideo() {
-  const files = fs.readdirSync(VIDEO_DIR).filter(f => f.endsWith(".mp4"));
+  const files = fs.readdirSync(VIDEO_DIR)
+    .filter(f => f.endsWith(".mp4") && !usedVideos.includes(f));
   if (!files.length) throw new Error("❌ No videos left!");
   const file = files[Math.floor(Math.random() * files.length)];
   return path.join(VIDEO_DIR, file);
@@ -239,8 +247,9 @@ async function main() {
       const uploaded = await uploadReel(page, watermarkedPath, caption);
 
       if (uploaded) {
-        fs.unlinkSync(reelPath);
-        console.log(`🗑️ Deleted ${path.basename(reelPath)}`);
+        usedVideos.push(path.basename(reelPath));
+        fs.writeFileSync(USED_FILE, JSON.stringify(usedVideos, null, 2));
+        console.log(`✅ Marked used: ${path.basename(reelPath)}`);
       }
 
       console.log("⏱️ Sleeping 3 hours");
