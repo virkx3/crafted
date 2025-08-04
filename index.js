@@ -120,10 +120,11 @@ function getRandomOverlayText() {
 function processVideo(input, output, audioFile) {
   const overlayText = getRandomOverlayText();
   return new Promise((resolve, reject) => {
-    ffmpeg(input)
-      .noAudio()
+    ffmpeg()
+      .input(input)
       .input(audioFile)
-      .videoFilters([
+      .complexFilter([
+        // Filters only apply to video input
         {
           filter: "drawtext",
           options: {
@@ -155,9 +156,12 @@ function processVideo(input, output, audioFile) {
         { filter: "eq", options: "brightness=0.02:contrast=1.1" },
         { filter: "crop", options: "iw*0.98:ih*0.98" }
       ])
+      // This is the KEY: map video from input[0] and audio from input[1]
       .outputOptions([
-        "-preset veryfast",
-        "-shortest"
+        "-map 0:v:0",
+        "-map 1:a:0",
+        "-shortest", // stop when the shorter of video/audio ends
+        "-preset veryfast"
       ])
       .output(output)
       .on("end", () => resolve(output))
@@ -165,6 +169,7 @@ function processVideo(input, output, audioFile) {
       .run();
   });
 }
+
 
 // ------------------ UPLOAD ------------------
 
