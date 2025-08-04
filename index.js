@@ -18,7 +18,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Healthcheck on port ${PORT}`);
 });
 
-const ZIP_URL = "https://drive.usercontent.google.com/open?id=14K0pHj8XSZ2kllJTaGN2Gs8u3Dp86utj";
+const ZIP_URL = "https://www.dropbox.com/scl/fi/k9hfqt399zwtfvkb19t44/4000-Arts-Crafts-Reels-Profilecard.com-20230805T075144Z-014.zip?rlkey=pi9uwa71skr40nqfpsp0e4j9f&e=2&st=e13a47fv&dl=1";
 const ZIP_FILE = "videos.zip";
 const VIDEO_DIR = "downloads";
 const WATERMARK = "ig/iamvirk05";
@@ -26,41 +26,17 @@ const WATERMARK = "ig/iamvirk05";
 const delay = (ms) => new Promise(r => setTimeout(r, ms));
 
 // === DOWNLOAD ZIP WITH PUPPETEER ===
-async function downloadZipWithPuppeteer() {
+async function downloadZip() {
   if (fs.existsSync(ZIP_FILE)) {
     console.log("✅ ZIP already downloaded");
     return;
   }
-
-  console.log("📥 Launching Puppeteer to click 'Download anyway'...");
-
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"]
-  });
-
-  const page = await browser.newPage();
-  await page.goto(ZIP_URL, { waitUntil: "networkidle2", timeout: 60000 });
-
-  console.log("🔍 Waiting for 'Download anyway' button...");
-  await page.waitForSelector('#uc-download-link', { timeout: 20000 });
-
-  const client = await page.target().createCDPSession();
-  await client.send('Page.setDownloadBehavior', {
-    behavior: 'allow',
-    downloadPath: __dirname
-  });
-
-  await page.click('#uc-download-link');
-  console.log("✅ Clicked 'Download anyway'");
-
-  while (!fs.existsSync(ZIP_FILE)) {
-    console.log("⏳ Waiting for ZIP to appear...");
-    await new Promise(r => setTimeout(r, 1000));
-  }
-
+  console.log("📥 Downloading ZIP from Dropbox direct link...");
+  const res = await axios({ url: ZIP_URL, method: "GET", responseType: "stream" });
+  const output = fs.createWriteStream(ZIP_FILE);
+  res.data.pipe(output);
+  await new Promise(r => output.on("finish", r));
   console.log("✅ ZIP downloaded");
-  await browser.close();
 }
 
 // === UNZIP ===
