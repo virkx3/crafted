@@ -312,7 +312,17 @@ async function main() {
   await downloadZip();
   await unzip();
 
-  const browser = await puppeteer.launch({ headless: false, args: ["--no-sandbox"] });
+  const browser = await puppeteer.launch({
+  headless: true,
+  args: [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--no-zygote',
+    '--single-process'
+  ]
+});
   const page = await browser.newPage();
 
   // Load session
