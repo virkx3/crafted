@@ -306,6 +306,11 @@ async function uploadReel(page, videoPath, caption) {
   }
 }
 
+function isSleepTime() {
+  const hour = new Date().getHours();
+  return hour >= 22 || hour < 8;
+}
+
 // ------------------ MAIN LOOP ------------------
 
 async function main() {
@@ -334,6 +339,17 @@ async function main() {
   } catch {
     console.log("⚠️ session.json not found or invalid");
   }
+
+  while (true) {
+  if (isSleepTime()) {
+    console.log("😴 It's sleep time (10 PM – 8 AM). Sleeping for 1 hour...");
+    await delay(60 * 60 * 1000); // Sleep for 1 hour
+    continue;
+  }
+
+  let reelPath, processedPath;
+  try {
+    // your code here...
 
   while (true) {
     let reelPath, processedPath;
