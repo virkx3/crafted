@@ -313,19 +313,20 @@ async function main() {
   await unzip();
 
   const browser = await puppeteer.launch({
-  headless: "new",
-  args: [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
-    '--disable-gpu',
-    '--no-zygote',
-    '--single-process'
-  ]
-});
-  const page = await browser.newPage();
+    headless: "new",
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-zygote',
+      '--single-process'
+    ]
+  });
 
-  // Load session
+  let page = await browser.newPage(); // Declare with 'let' so it can be reassigned
+
+  // Load session cookies
   try {
     const cookies = JSON.parse(fs.readFileSync("session.json", "utf8"));
     await page.setCookie(...cookies);
@@ -337,9 +338,20 @@ async function main() {
   while (true) {
     let reelPath, processedPath;
     try {
+      // 🧼 Close old page and open a fresh one
+      if (!page.isClosed()) await page.close();
+      page = await browser.newPage();
+
+      // Load cookies again to ensure session stays alive
+      try {
+        const cookies = JSON.parse(fs.readFileSync("session.json", "utf8"));
+        await page.setCookie(...cookies);
+      } catch {}
+
       reelPath = pickRandomVideo();
       const soundPath = pickRandomSound();
       processedPath = reelPath.replace(".mp4", `_final_${Date.now()}.mp4`);
+
       await processVideo(reelPath, processedPath, soundPath);
 
       const caption = `${getRandomCaption()}\n\n${getRandomHashtags()}`;
@@ -353,11 +365,11 @@ async function main() {
       }
 
       console.log("⏱️ Sleeping 3 hours");
-      await delay(3 * 60 * 60 * 1000);
+      await delay(3 * 60 * 60 * 1000); // Sleep for 3 hours
 
     } catch (err) {
       console.error("❌ Loop error:", err);
-      await delay(180000);
+      await delay(180000); // 3 minutes wait on failure
     } finally {
       if (processedPath && fs.existsSync(processedPath)) fs.unlinkSync(processedPath);
     }
