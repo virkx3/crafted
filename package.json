@@ -1,23 +1,20 @@
 {
-  "name": "youtube-to-instagram-bot",
+  "name": "ig-repost-bot",
   "version": "1.0.0",
-  "description": "Automated bot to download YouTube Shorts and upload to Instagram",
-  "main": "bot.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node bot.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js"
   },
   "dependencies": {
-    "axios": "^1.7.2",
-    "express": "^4.19.2",
-    "fluent-ffmpeg": "^2.1.2",
-    "ffmpeg-static": "^5.2.0",
+    "puppeteer": "^22.11.0",
     "puppeteer-extra": "^3.3.6",
+    "express": "^4.19.2",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
-    "yt-dlp-exec": "^2.1.0",
-    "puppeteer-core": "^22.11.0"
-  },
-  "engines": {
-    "node": ">=18.x"
+    "axios": "^1.7.2",
+    "fluent-ffmpeg": "^2.1.2",
+    "ffmpeg-static": "^4.4.0",
+    "fs-extra": "^11.2.0",
+     "ytdl-core": "^4.11.1",
+  "cheerio": "^1.0.0-rc.12"
   }
 }
