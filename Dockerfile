@@ -1,31 +1,29 @@
 FROM node:18-slim
 
-# Avoid Puppeteer install warnings
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+# Set environment
+ENV TZ=Asia/Kolkata \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Install only necessary system packages
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
     chromium \
-    xvfb \
     ffmpeg \
-    fonts-freefont-ttf \
-    ttf-mscorefonts-installer \
-    --no-install-recommends && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+    xvfb \
+    ca-certificates \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/*
 
-# Create app directory
+# Set working directory
 WORKDIR /app
 
-# Copy package files and install Node dependencies
+# Install Node.js dependencies
 COPY package*.json ./
 RUN npm install
 
-# Copy rest of the app
+# Copy rest of your app, including local fonts
 COPY . .
 
-# Expose the port for health check
-EXPOSE 3000
-
-# Run the bot
-CMD ["npm", "start"]
+# Clean any stale Xvfb lock and run the bot
+CMD rm -f /tmp/.X99-lock && Xvfb :99 -screen 0 1024x768x24 & node index.js
