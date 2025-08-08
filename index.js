@@ -7,7 +7,7 @@ const fs = require("fs");
 const axios = require("axios");
 const ffmpeg = require("fluent-ffmpeg");
 const ffmpegPath = require("ffmpeg-static");
-const ytdlp = require("yt-dlp-exec");
+import ytdl from 'yt-dlp-exec';
 const path = require("path");
 const express = require("express");
 const app = express();
