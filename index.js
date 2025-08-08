@@ -1,192 +1,124 @@
+// Dependencies:
+// npm install puppeteer-extra puppeteer-extra-plugin-stealth fluent-ffmpeg ffmpeg-static fs axios yt-dlp-exec express
+
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
-const unzipper = require("unzipper");
+const fs = require("fs");
 const axios = require("axios");
 const ffmpeg = require("fluent-ffmpeg");
 const ffmpegPath = require("ffmpeg-static");
-const fs = require("fs");
+const ytdlp = require("yt-dlp-exec");
 const path = require("path");
 const express = require("express");
+const app = express();
+const PORT = process.env.PORT || 3000;
 
 puppeteer.use(StealthPlugin());
 ffmpeg.setFfmpegPath(ffmpegPath);
 
-const app = express();
-const PORT = process.env.PORT || 8080;
-app.get('/', (_, res) => res.send('Bot is alive'));
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Healthcheck on port ${PORT}`);
-});
-
-const ZIP_URL = "https://www.dropbox.com/scl/fi/k9hfqt399zwtfvkb19t44/4000-Arts-Crafts-Reels-Profilecard.com-20230805T075144Z-014.zip?rlkey=pi9uwa71skr40nqfpsp0e4j9f&e=2&st=e13a47fv&dl=1"; // ?dl=1
-const ZIP_FILE = "videos.zip";
 const VIDEO_DIR = "downloads";
-const SOUND_DIR = "sounds";
+const USED_SHORTS_FILE = "used_shorts.json";
 const WATERMARK = "ig/iamvirk05";
+const YT_CHANNELS = [
+  "https://www.youtube.com/@mukta_art_craft/shorts",
+  "https://www.youtube.com/@ARartandcraft23/shorts"
+];
 
-const delay = ms => new Promise(r => setTimeout(r, ms));
+const delay = (ms, variation = 0) => new Promise(res => setTimeout(res, ms + (variation ? Math.floor(Math.random() * variation) : 0)));
+if (!fs.existsSync(VIDEO_DIR)) fs.mkdirSync(VIDEO_DIR);
 
-// ------------------ DOWNLOAD + UNZIP ------------------
-
-async function downloadZip() {
-  if (fs.existsSync(ZIP_FILE)) {
-    const stats = fs.statSync(ZIP_FILE);
-    console.log(`✅ ZIP already downloaded, size: ${stats.size} bytes`);
-    if (stats.size < 100 * 1024 * 1024) {
-      console.log("⚠️ ZIP too small, redownloading...");
-      fs.unlinkSync(ZIP_FILE);
-    } else return;
-  }
-
-  console.log("📥 Downloading ZIP...");
-  const res = await axios({ url: ZIP_URL, method: "GET", responseType: "stream" });
-  const output = fs.createWriteStream(ZIP_FILE);
-  res.data.pipe(output);
-  await new Promise(r => output.on("finish", r));
-  console.log(`✅ ZIP downloaded, size: ${fs.statSync(ZIP_FILE).size} bytes`);
-}
-
-async function unzip() {
-  if (!fs.existsSync(VIDEO_DIR)) fs.mkdirSync(VIDEO_DIR);
-  const files = walkSync(VIDEO_DIR).filter(f => f.endsWith(".mp4"));
-  if (files.length) {
-    console.log(`✅ Already unzipped (${files.length} videos)`);
-    return;
-  }
-
-  console.log("📦 Unzipping...");
-  await new Promise((resolve, reject) => {
-    fs.createReadStream(ZIP_FILE)
-      .pipe(unzipper.Parse())
-      .on('entry', entry => {
-        const fileName = path.basename(entry.path);
-        if (fileName.endsWith('.mp4')) {
-          entry.pipe(fs.createWriteStream(path.join(VIDEO_DIR, fileName)));
-        } else {
-          entry.autodrain();
-        }
-      })
-      .on('close', resolve)
-      .on('error', reject);
-  });
-  console.log("✅ Unzipped");
-}
-
-function walkSync(dir) {
-  return fs.readdirSync(dir).flatMap(f => {
-    const p = path.join(dir, f);
-    return fs.statSync(p).isDirectory() ? walkSync(p) : p;
-  });
-}
-
-// ------------------ VIDEO PICK & EDIT ------------------
-
-function pickRandomVideo() {
-  const files = walkSync(VIDEO_DIR).filter(f => f.endsWith(".mp4"));
-  if (!files.length) throw new Error("❌ No videos left!");
-  const file = files[Math.floor(Math.random() * files.length)];
-  console.log(`🎥 Picked: ${file}`);
-  return file;
-}
-
-function pickRandomSound() {
-  const sounds = walkSync(SOUND_DIR).filter(f => f.endsWith(".mp3") || f.endsWith(".wav"));
-  if (!sounds.length) throw new Error("❌ No sound files found in sounds/");
-  const file = sounds[Math.floor(Math.random() * sounds.length)];
-  console.log(`🔊 Picked sound: ${file}`);
-  return file;
+let usedShorts = [];
+if (fs.existsSync(USED_SHORTS_FILE)) {
+  usedShorts = JSON.parse(fs.readFileSync(USED_SHORTS_FILE, "utf8"));
 }
 
 function getRandomCaption() {
-  const lines = fs.readFileSync("caption.txt", "utf8").split("\n").filter(Boolean);
-  return lines[Math.floor(Math.random() * lines.length)];
+  const captions = fs.readFileSync("caption.txt", "utf8").split("\n").filter(Boolean);
+  return captions[Math.floor(Math.random() * captions.length)];
 }
 
 function getRandomHashtags(count = 15) {
   const tags = fs.readFileSync("hashtag.txt", "utf8").split("\n").filter(Boolean);
   const selected = [];
   while (selected.length < count && tags.length) {
-    const i = Math.floor(Math.random() * tags.length);
-    selected.push(tags.splice(i, 1)[0]);
+    const index = Math.floor(Math.random() * tags.length);
+    selected.push(tags.splice(index, 1)[0]);
   }
   return selected.join(" ");
 }
 
 function getRandomOverlayText() {
   const overlays = fs.readFileSync("overlay.txt", "utf8").split("\n").filter(Boolean);
-  return overlays[Math.floor(Math.random() * overlays.length)].replace(/'/g, "\\'");
+  const raw = overlays[Math.floor(Math.random() * overlays.length)];
+  return raw.replace(/[:\\]/g, "\\$&").replace(/'/g, "\\'").replace(/\"/g, '\\\"');
 }
 
-function processVideo(input, output, audioFile) {
+function addWatermark(inputPath, outputPath) {
   const overlayText = getRandomOverlayText();
   return new Promise((resolve, reject) => {
-    ffmpeg()
-      .input(input)
-      .input(audioFile)
-      .complexFilter([
+    ffmpeg(inputPath)
+      .videoFilters([
         {
-          filter: 'drawtext',
+          filter: "drawtext",
           options: {
-            fontfile: path.resolve(__dirname, 'fonts/SF_Cartoonist_Hand_Bold.ttf'),
+            fontfile: path.resolve(__dirname, "fonts/SF_Cartoonist_Hand_Bold.ttf"),
             text: WATERMARK,
             fontsize: 24,
-            fontcolor: 'white',
-            x: '(w-text_w)-10',
-            y: '(h-text_h)-20',
+            fontcolor: "black",
+            x: "(w-text_w)-10",
+            y: "(h-text_h)-20",
             box: 1,
-            boxcolor: 'black@1.0',
+            boxcolor: "white@1.0",
             boxborderw: 5
-          },
-          inputs: '[0:v]',
-          outputs: 'v1'
+          }
         },
         {
-          filter: 'drawtext',
+          filter: "drawtext",
           options: {
-            fontfile: path.resolve(__dirname, 'fonts/RubikGemstones-Regular.ttf'),
+            fontfile: path.resolve(__dirname, "fonts/ShinyCrystal-Yq3z4.ttf"),
             text: overlayText,
-            fontsize: 36,
-            fontcolor: 'white',
+            fontsize: 30,
+            fontcolor: "white",
             borderw: 2,
-            bordercolor: 'black',
-            x: '(w-text_w)/2',
-            y: '(h-text_h)/1.2',
-            enable: 'between(t,1,4)'
-          },
-          inputs: 'v1',
-          outputs: 'v2'
+            bordercolor: "black",
+            x: "(w-text_w)/2",
+            y: "(h-text_h)/1.1",
+            enable: "between(t,1,2)"
+          }
         },
-        {
-          filter: 'eq',
-          options: 'brightness=0.02:contrast=1.1',
-          inputs: 'v2',
-          outputs: 'v3'
-        },
-        {
-          filter: 'crop',
-          options: 'iw*0.98:ih*0.98',
-          inputs: 'v3',
-          outputs: 'v'
-        }
+        { filter: "crop", options: "iw*0.98:ih*0.98" }
       ])
-      .outputOptions([
-        '-map [v]', // final video stream from filter
-        '-map 1:a', // audio from second input
-        '-shortest',
-        '-preset veryfast'
-      ])
-      .output(output)
-      .on('end', () => resolve(output))
-      .on('error', reject)
+      .outputOptions(["-preset veryfast", "-threads 1", "-max_muxing_queue_size 1024"])
+      .output(outputPath)
+      .on("end", () => resolve(outputPath))
+      .on("error", err => reject(err))
       .run();
   });
 }
 
+async function fetchYoutubeShortsLinks(page, channelUrl) {
+  await page.goto(channelUrl, { waitUntil: "networkidle2" });
+  for (let i = 0; i < 4; i++) {
+    await page.evaluate(() => window.scrollBy(0, window.innerHeight));
+    await delay(2000);
+  }
+  const links = await page.$$eval("a", as =>
+    as.map(a => a.href).filter(href => href.includes("/shorts/"))
+  );
+  return [...new Set(links)];
+}
 
-// ------------------ UPLOAD ------------------
+async function downloadYoutubeShort(url, outputPath) {
+  return ytdlp(url, { output: outputPath, format: "mp4", quiet: true })
+    .then(() => outputPath)
+    .catch(err => {
+      console.error("❌ yt-dlp error:", err.message);
+      return null;
+    });
+}
 
 async function uploadReel(page, videoPath, caption) {
- try {
+  try {
     console.log("⬆️ Uploading reel...");
 
     if (!fs.existsSync(videoPath)) {
@@ -306,85 +238,90 @@ async function uploadReel(page, videoPath, caption) {
   }
 }
 
-function isSleepTime() {
-  const hour = new Date().getHours();
-  return hour >= 22 || hour < 8;
+async function cleanupFiles(filePaths) {
+  filePaths.forEach(filePath => {
+    if (filePath && fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+        console.log(`🧹 Deleted file: ${path.basename(filePath)}`);
+      } catch (err) {
+        console.error(`❌ Error deleting file ${filePath}:`, err.message);
+      }
+    }
+  });
 }
 
-// ------------------ MAIN LOOP ------------------
+function isSleepTime(date = new Date()) {
+  const hours = date.getHours();
+  return hours >= 22 || hours < 9;
+}
+
+async function handleSleepTime() {
+  if (!isSleepTime()) return;
+  const now = new Date();
+  const wakeTime = new Date();
+  if (now.getHours() >= 22) wakeTime.setDate(wakeTime.getDate() + 1);
+  wakeTime.setHours(9, 0, 0, 0);
+  const msUntilWake = wakeTime - now;
+  console.log(`⏰ Sleeping until ${wakeTime.toLocaleTimeString()} (${Math.round(msUntilWake / 60000)} minutes)`);
+  await delay(msUntilWake);
+}
 
 async function main() {
-  await downloadZip();
-  await unzip();
+  const browser = await puppeteer.launch({ headless: "new", args: ["--no-sandbox"] });
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1366, height: 768 });
 
-  const browser = await puppeteer.launch({
-    headless: "new",
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--no-zygote',
-      '--single-process'
-    ]
-  });
+  while (true) {
+    let videoPath, watermarkedPath;
+    try {
+      await handleSleepTime();
+      const channel = YT_CHANNELS[Math.floor(Math.random() * YT_CHANNELS.length)];
+      const shortsLinks = await fetchYoutubeShortsLinks(page, channel);
 
-  let page = await browser.newPage(); // Declare with 'let' so it can be reassigned
-
-  // Load session cookies
-  try {
-    const cookies = JSON.parse(fs.readFileSync("session.json", "utf8"));
-    await page.setCookie(...cookies);
-    console.log("✅ Session loaded");
-  } catch {
-    console.log("⚠️ session.json not found or invalid");
-  }
-
-while (true) {
-  if (isSleepTime()) {
-    console.log("😴 It's sleep time (10 PM – 8 AM). Sleeping for 1 hour...");
-    await delay(60 * 60 * 1000); // Sleep for 1 hour
-    continue;
-  }
-
-  let reelPath, processedPath;
-  try {
-      // 🧼 Close old page and open a fresh one
-      if (!page.isClosed()) await page.close();
-      page = await browser.newPage();
-
-      // Load cookies again to ensure session stays alive
-      try {
-        const cookies = JSON.parse(fs.readFileSync("session.json", "utf8"));
-        await page.setCookie(...cookies);
-      } catch {}
-
-      reelPath = pickRandomVideo();
-      const soundPath = pickRandomSound();
-      processedPath = reelPath.replace(".mp4", `_final_${Date.now()}.mp4`);
-
-      await processVideo(reelPath, processedPath, soundPath);
-
-      const caption = `${getRandomCaption()}\n\n${getRandomHashtags()}`;
-      const uploaded = await uploadReel(page, processedPath, caption);
-
-      if (uploaded) {
-        fs.unlinkSync(reelPath);
-        console.log(`🗑️ Deleted: ${reelPath}`);
-      } else {
-        console.log("❌ Upload failed — not deleted");
+      const newShort = shortsLinks.find(link => !usedShorts.includes(link));
+      if (!newShort) {
+        console.log("⚠️ No new Shorts found, sleeping 30s");
+        await delay(30000);
+        continue;
       }
 
-      console.log("⏱️ Sleeping 3 hours");
-      await delay(3 * 60 * 60 * 1000); // Sleep for 3 hours
+      const filename = `short_${Date.now()}.mp4`;
+      videoPath = path.join(VIDEO_DIR, filename);
+      const downloaded = await downloadYoutubeShort(newShort, videoPath);
+      if (!downloaded) continue;
 
+      watermarkedPath = videoPath.replace(".mp4", "_wm.mp4");
+      await addWatermark(videoPath, watermarkedPath);
+
+      const caption = `${getRandomCaption()}\n\n${getRandomHashtags()}`;
+      console.log("💬 Caption:", caption);
+
+      // 📤 Upload here using your custom uploadReel() function:
+      // await uploadReel(watermarkedPath, caption);
+
+      usedShorts.push(newShort);
+      fs.writeFileSync(USED_SHORTS_FILE, JSON.stringify(usedShorts, null, 2));
+
+      const now = new Date();
+      let nextPostTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+      if (nextPostTime.getHours() >= 22 || nextPostTime.getHours() < 9) {
+        if (nextPostTime.getHours() >= 22) nextPostTime.setDate(nextPostTime.getDate() + 1);
+        nextPostTime.setHours(9, 0, 0, 0);
+      }
+      const waitTime = nextPostTime - Date.now();
+      console.log(`⏱️ Waiting until ${nextPostTime.toLocaleTimeString()} (~${Math.round(waitTime / 60000)} mins)`);
+      await delay(waitTime);
     } catch (err) {
-      console.error("❌ Loop error:", err);
-      await delay(180000); // 3 minutes wait on failure
+      console.error("❌ Main loop error:", err.message);
+      await delay(180000);
     } finally {
-      if (processedPath && fs.existsSync(processedPath)) fs.unlinkSync(processedPath);
+      cleanupFiles([videoPath, watermarkedPath]);
     }
   }
 }
 
 main();
+
+app.get('/', (_, res) => res.send('Bot is alive'));
+app.listen(PORT, '0.0.0.0', () => console.log(`Healthcheck server listening on port ${PORT}`));
