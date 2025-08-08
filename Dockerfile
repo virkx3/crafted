@@ -58,8 +58,11 @@ WORKDIR /app
 # Copy package files first for better caching
 COPY package*.json ./
 
-# Install Node dependencies
-RUN npm install
+# Install Node dependencies with retries
+RUN npm install --no-optional || \
+    npm install --no-optional || \
+    npm install --no-optional || \
+    npm install --no-optional
 
 # Copy app source
 COPY . .
