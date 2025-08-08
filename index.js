@@ -142,7 +142,11 @@ async function downloadFromYoutube(channelUrl) {
     console.log("🎯 Selected:", selectedUrl);
 
     const output = `video_${Date.now()}.mp4`;
-    const downloadCmd = `yt-dlp -f mp4 -o "${path.join(VIDEO_DIR, output)}" "${selectedUrl}"`;
+    const ytDlpPath = path.join(__dirname, 'yt-dlp');
+fs.chmodSync(ytDlpPath, 0o755);  // Fix for Railway
+
+const downloadCmd = `${ytDlpPath} -f mp4 -o "${path.join(VIDEO_DIR, output)}" "${selectedUrl}"`;
+
 
     await new Promise((resolve, reject) => {
       exec(downloadCmd, (error, stdout, stderr) => {
