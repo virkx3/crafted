@@ -1,80 +1,35 @@
-# Use Node.js 18 base image
-FROM node:18-bullseye
+FROM node:18
 
-# Install system dependencies
+# Set timezone and Puppeteer environment
+ENV TZ=Asia/Kolkata
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
+# Install dependencies (fonts, Chromium, FFmpeg)
 RUN apt-get update && \
     apt-get install -y \
-    python3 \
-    python3-pip \
-    libx11-xcb1 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxext6 \
-    libxfixes3 \
-    libxrandr2 \
-    libxrender1 \
-    libxtst6 \
-    ca-certificates \
-    fonts-liberation \
-    libappindicator3-1 \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libc6 \
-    libcairo2 \
-    libcups2 \
-    libdbus-1-3 \
-    libexpat1 \
-    libfontconfig1 \
-    libgbm1 \
-    libgcc1 \
-    libglib2.0-0 \
-    libgtk-3-0 \
-    libnspr4 \
-    libnss3 \
-    libpango-1.0-0 \
-    libpangocairo-1.0-0 \
-    libstdc++6 \
-    libxcb1 \
-    libxss1 \
-    lsb-release \
-    wget \
-    xdg-utils \
-    libgl1 \
     ffmpeg \
+    libfreetype6 \
+    libfontconfig1 \
+    fonts-noto-color-emoji \
+    fonts-freefont-ttf \
+    fontconfig \
     chromium \
-    && rm -rf /var/lib/apt/lists/*
+    xvfb \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* && fc-cache -fv
 
-# Install yt-dlp
-RUN pip3 install --no-cache-dir yt-dlp
-
-# Set Puppeteer config
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-
-# Create app directory
+# Set working directory
 WORKDIR /app
 
-# Copy package files first for better caching
+# Install Node.js dependencies first
 COPY package*.json ./
+RUN npm install
 
-# Install Node dependencies with retries
-RUN npm install --no-optional || \
-    npm install --no-optional || \
-    npm install --no-optional || \
-    npm install --no-optional
-
-# Copy app source
+# Copy application code
 COPY . .
 
-# Create required directories
-RUN mkdir -p downloads fonts
-
-# Set environment variables
-ENV NODE_ENV=production
-
-# Expose port for health checks
+# Expose port for Railway healthcheck
 EXPOSE 3000
 
-# Start the application
-CMD ["npm", "start"]
+# Start headless Xvfb + bot
+CMD bash -c "Xvfb :99 -screen 0 1024x768x16 & export DISPLAY=:99 && node index.js"
