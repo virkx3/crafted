@@ -1,19 +1,22 @@
 {
-  "name": "youtube-shorts-bot",
+  "name": "youtube-to-instagram-bot",
   "version": "1.0.0",
+  "description": "Automated bot to download YouTube Shorts and upload to Instagram",
   "main": "index.js",
-  "type": "module",
   "scripts": {
-    "start": "Xvfb :99 -screen 0 1024x768x24 & node index.js"
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "axios": "^1.6.8",
+    "axios": "^1.7.2",
     "express": "^4.19.2",
-    "ffmpeg-static": "^5.1.0",
     "fluent-ffmpeg": "^2.1.2",
-    "fs-extra": "^11.2.0",
+    "ffmpeg-static": "^5.2.0",
     "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.1",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "yt-dlp-exec": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=18.x"
   }
 }
