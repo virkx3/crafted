@@ -1,29 +1,35 @@
-FROM node:18-slim
+FROM node:18
 
-# Set environment
-ENV TZ=Asia/Kolkata \
-    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
-    DEBIAN_FRONTEND=noninteractive
+# Set timezone and Puppeteer environment
+ENV TZ=Asia/Kolkata
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-# Install only necessary system packages
+# Install dependencies (fonts, Chromium, FFmpeg)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    chromium \
+    apt-get install -y \
     ffmpeg \
+    libfreetype6 \
+    libfontconfig1 \
+    fonts-noto-color-emoji \
+    fonts-freefont-ttf \
+    fontconfig \
+    chromium \
     xvfb \
-    ca-certificates \
-    && apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/*
+    && apt-get clean && rm -rf /var/lib/apt/lists/* && fc-cache -fv
 
 # Set working directory
 WORKDIR /app
 
-# Install Node.js dependencies
+# Install Node.js dependencies first
 COPY package*.json ./
 RUN npm install
 
-# Copy rest of your app, including local fonts
+# Copy application code
 COPY . .
 
-# Clean any stale Xvfb lock and run the bot
-CMD rm -f /tmp/.X99-lock && Xvfb :99 -screen 0 1024x768x24 & node index.js
+# Expose port for Railway healthcheck
+EXPOSE 3000
+
+# Start headless Xvfb + bot
+CMD bash -c "Xvfb :99 -screen 0 1024x768x16 & export DISPLAY=:99 && node index.js"
