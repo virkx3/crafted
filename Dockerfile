@@ -5,7 +5,7 @@ ENV TZ=Asia/Kolkata
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-# Install dependencies (fonts, Chromium, FFmpeg)
+# Install OS dependencies
 RUN apt-get update && \
     apt-get install -y \
     ffmpeg \
@@ -18,18 +18,21 @@ RUN apt-get update && \
     xvfb \
     && apt-get clean && rm -rf /var/lib/apt/lists/* && fc-cache -fv
 
+
 # Set working directory
 WORKDIR /app
 
-# Install Node.js dependencies first
+# Copy and clean install dependencies
 COPY package*.json ./
-RUN npm install
+RUN rm -rf node_modules package-lock.json && npm cache clean --force && \
+    npm install --legacy-peer-deps || \
+    (echo '🧾 NPM INSTALL FAILED — Showing logs:' && cat /root/.npm/_logs/* || true)
 
-# Copy application code
+# Copy application source
 COPY . .
 
-# Expose port for Railway healthcheck
+# Healthcheck port
 EXPOSE 3000
 
-# Start headless Xvfb + bot
-CMD bash -c "Xvfb :99 -screen 0 1024x768x16 & export DISPLAY=:99 && node index.js"
+# Start headless browser + app
+CMD bash -c "Xvfb :99 -screen 0 1024x768x16 & export DISPLAY=:99 && npm start"
