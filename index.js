@@ -10,6 +10,7 @@ const path = require("path");
 const express = require('express');
 const cheerio = require("cheerio");
 const ytdl = require("ytdl-core");
+const { exec } = require("child_process");
 
 // Constants
 const app = express();
@@ -100,38 +101,70 @@ function addWatermark(inputPath, outputPath) {
 }
 
 // YouTube Shorts downloader
-async function downloadFromYoutube(channelUrl) {
-  try {
-    const shortsUrl = channelUrl.replace(/\/$/, "") + "/shorts";
-    const { data: html } = await axios.get(shortsUrl, { headers: { "User-Agent": "Mozilla/5.0" } });
-    const $ = cheerio.load(html);
-    const ids = new Set();
-    $("a").each((_, el) => {
-      const h = $(el).attr("href");
-      if (h && h.startsWith("/shorts/")) {
-        ids.add(h.split("/shorts/")[1].split("?")[0]);
-      }
-    });
-    if (!ids.size) throw new Error("No Shorts found");
-    const vid = Array.from(ids)[Math.floor(Math.random() * ids.size)];
-    const videoUrl = `https://www.youtube.com/shorts/${vid}`;
-    console.log("🎯 Selected:", videoUrl);
+async function getRandomShortUrlFromChannel(channelUrl) {
+  const browser = await puppeteer.launch({ headless: "new" });
+  const page = await browser.newPage();
+  await page.goto(`${channelUrl}/shorts`, { waitUntil: "networkidle2" });
 
-    const info = await ytdl.getInfo(videoUrl);
-    const cleanTitle = info.videoDetails.title.replace(/[^\w\s]/g, "").replace(/\s+/g, "_");
-    const fileName = `yt_${cleanTitle}_${Date.now()}.mp4`;
-    const out = path.join(VIDEO_DIR, fileName);
-    const stream = ytdl(videoUrl, { quality: "highestvideo", filter: f => f.container === "mp4" });
-    stream.pipe(fs.createWriteStream(out));
-    return new Promise((res, rej) => {
-      stream.on("end", () => (console.log("✅ Downloaded:", fileName), res(out)));
-      stream.on("error", e => rej(e));
+  const videoUrls = await page.evaluate(() => {
+    const anchors = Array.from(document.querySelectorAll("a"));
+    return anchors
+      .map((a) => a.href)
+      .filter((href) => href.includes("/shorts/"));
+  });
+
+  await browser.close();
+
+  if (!videoUrls.length) throw new Error("No Shorts found");
+  const random = videoUrls[Math.floor(Math.random() * videoUrls.length)];
+  return `https://www.youtube.com${new URL(random).pathname}`;
+}
+
+async function downloadFromYoutube(channelUrl) {
+  const browser = await puppeteer.launch({ headless: "new", args: ["--no-sandbox"] });
+  const page = await browser.newPage();
+  try {
+    const shortsPage = channelUrl.replace(/\/$/, "") + "/shorts";
+    await page.goto(shortsPage, { waitUntil: "networkidle2", timeout: 60000 });
+
+    await page.evaluate(() => window.scrollBy(0, window.innerHeight));
+    await new Promise(r => setTimeout(r, 2000));
+
+    const shortUrls = await page.evaluate(() => {
+      return Array.from(new Set(Array.from(document.querySelectorAll("a"))
+        .map(a => a.href)
+        .filter(href => href.includes("/shorts/"))));
     });
+
+    if (!shortUrls.length) throw new Error("No Shorts found");
+
+    const selectedUrl = shortUrls[Math.floor(Math.random() * shortUrls.length)];
+    console.log("🎯 Selected:", selectedUrl);
+
+    const output = `video_${Date.now()}.mp4`;
+    const downloadCmd = `yt-dlp -f mp4 -o "${path.join(VIDEO_DIR, output)}" "${selectedUrl}"`;
+
+    await new Promise((resolve, reject) => {
+      exec(downloadCmd, (error, stdout, stderr) => {
+        if (error) {
+          console.error("yt-dlp error:", stderr);
+          reject(error);
+        } else {
+          resolve(stdout);
+        }
+      });
+    });
+
+    return path.join(VIDEO_DIR, output);
+
   } catch (e) {
     console.error("❌ downloadFromYoutube failed:", e.message);
     return null;
+  } finally {
+    await browser.close();
   }
 }
+
 
 // Cleanup
 function cleanupFiles(paths) {
