@@ -1,3 +1,4 @@
+if (typeof File === "undefined") globalThis.File = class {};
 // Required modules
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
