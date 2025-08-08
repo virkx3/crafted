@@ -15,7 +15,7 @@
     "axios": "^1.7.2",
     "fluent-ffmpeg": "^2.1.2",
     "ffmpeg-static": "^4.4.0",
-    "fs-extra": "^11.2.0"
+    "fs-extra": "^11.2.0",
     "yt-dlp-exec": "^1.0.3"
   }
 }
