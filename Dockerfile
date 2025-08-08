@@ -5,7 +5,7 @@ ENV TZ=Asia/Kolkata
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-# Install system dependencies (Chromium, FFmpeg, fonts, etc.)
+# Install OS-level dependencies
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     libfreetype6 \
@@ -15,26 +15,21 @@ RUN apt-get update && apt-get install -y \
     fontconfig \
     chromium \
     xvfb \
-    python3 \
-    make \
-    g++ \
     && apt-get clean && rm -rf /var/lib/apt/lists/* && fc-cache -fv
 
-# Set app directory
+# Set app working directory
 WORKDIR /app
 
-# Copy ONLY package.json and install first (caches better)
+# Copy package.json and install Node.js dependencies
 COPY package*.json ./
-
-# Clean npm cache first and install with legacy peer deps
-RUN npm cache clean --force && npm install --legacy-peer-deps || \
+RUN npm install --legacy-peer-deps || \
     (echo '🧾 NPM INSTALL FAILED — Showing logs:' && cat /root/.npm/_logs/* || true)
 
-# Now copy the rest of your app code
+# Copy rest of app files
 COPY . .
 
-# Expose port (optional, for Express or Railway health checks)
+# Expose port (optional if using Express)
 EXPOSE 3000
 
-# Start bot with virtual framebuffer (Xvfb)
+# Start headless Xvfb with Node
 CMD bash -c "Xvfb :99 -screen 0 1024x768x16 & export DISPLAY=:99 && node index.js"
