@@ -1,35 +1,73 @@
-FROM node:18
+# Use Node.js 18 base image
+FROM node:18-bullseye
 
-# Set timezone and Puppeteer environment
-ENV TZ=Asia/Kolkata
-ENV PUPPETEER_SKIP_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-
-# Install dependencies (fonts, Chromium, FFmpeg)
+# Install system dependencies
 RUN apt-get update && \
     apt-get install -y \
-    ffmpeg \
-    libfreetype6 \
+    python3 \
+    python3-pip \
+    libx11-xcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxrandr2 \
+    libxrender1 \
+    libxtst6 \
+    ca-certificates \
+    fonts-liberation \
+    libappindicator3-1 \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libc6 \
+    libcairo2 \
+    libcups2 \
+    libdbus-1-3 \
+    libexpat1 \
     libfontconfig1 \
-    fonts-noto-color-emoji \
-    fonts-freefont-ttf \
-    fontconfig \
-    chromium \
-    xvfb \
-    && apt-get clean && rm -rf /var/lib/apt/lists/* && fc-cache -fv
+    libgbm1 \
+    libgcc1 \
+    libglib2.0-0 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libstdc++6 \
+    libxcb1 \
+    libxss1 \
+    lsb-release \
+    wget \
+    xdg-utils \
+    libgl1 \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
+# Install yt-dlp
+RUN pip3 install --no-cache-dir yt-dlp
+
+# Create app directory
 WORKDIR /app
 
-# Install Node.js dependencies first
+# Copy package files first for better caching
 COPY package*.json ./
+
+# Install Node dependencies
 RUN npm install
 
-# Copy application code
+# Copy app source
 COPY . .
 
-# Expose port for Railway healthcheck
+# Create required directories
+RUN mkdir -p downloads fonts
+
+# Set environment variables
+ENV NODE_ENV=production
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome
+
+# Expose port for health checks
 EXPOSE 3000
 
-# Start headless Xvfb + bot
-CMD bash -c "Xvfb :99 -screen 0 1024x768x16 & export DISPLAY=:99 && node index.js"
+# Start the application
+CMD ["npm", "start"]
