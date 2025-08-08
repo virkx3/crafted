@@ -1,360 +1,360 @@
+// Required modules
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const fs = require("fs");
 const axios = require("axios");
 const ffmpeg = require("fluent-ffmpeg");
 const ffmpegPath = require("ffmpeg-static");
-const ytdlp = require('yt-dlp-exec');
 const path = require("path");
-const express = require("express");
+const express = require('express');
+const cheerio = require("cheerio");
+const ytdl = require("ytdl-core");
+
+// Constants
 const app = express();
 const PORT = process.env.PORT || 3000;
+const VIDEO_DIR = "downloads";
+const USED_REELS_FILE = "used_reels.json";
+const WATERMARK = "ig/ramn_preet05";
+const CHANNELS_FILE = "youtube_channels.txt";
+const SESSION_FILE = "session.json";
 
+// Healthcheck server
+app.get('/', (_, res) => res.send('Bot is alive'));
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Healthcheck server listening on port ${PORT}`);
+});
+
+// Puppeteer + FFmpeg setup
 puppeteer.use(StealthPlugin());
 ffmpeg.setFfmpegPath(ffmpegPath);
 
-const VIDEO_DIR = "downloads";
-const USED_SHORTS_FILE = "used_shorts.json";
-const WATERMARK = "ig/iamvirk05";
-const YT_CHANNELS = [
-"https://www.youtube.com/@mukta_art_craft/shorts",
-"https://www.youtube.com/@ARartandcraft23/shorts"
-];
+// Utility: random delay
+const delay = (ms, varn = 0) =>
+  new Promise(res => setTimeout(res, ms + (varn ? Math.random() * varn : 0)));
 
-const delay = (ms, variation = 0) =>
-new Promise(res => setTimeout(res, ms + (variation ? Math.floor(Math.random() * variation) : 0)));
+// Ensure directories exist
+[VIDEO_DIR, path.dirname(SESSION_FILE)].forEach(dir => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+});
 
-if (!fs.existsSync(VIDEO_DIR)) fs.mkdirSync(VIDEO_DIR);
-
-let usedShorts = [];
-if (fs.existsSync(USED_SHORTS_FILE)) {
-usedShorts = JSON.parse(fs.readFileSync(USED_SHORTS_FILE, "utf8"));
+// Load used list
+let usedReels = [];
+if (fs.existsSync(USED_REELS_FILE)) {
+  try {
+    usedReels = JSON.parse(fs.readFileSync(USED_REELS_FILE, "utf8"));
+  } catch (e) {
+    console.error("Error loading used reels:", e.message);
+  }
 }
 
+// Caption & hashtags
 function getRandomCaption() {
-const captions = fs.readFileSync("caption.txt", "utf8").split("\n").filter(Boolean);
-return captions[Math.floor(Math.random() * captions.length)];
+  try {
+    const caps = fs.readFileSync("caption.txt", "utf8").split("\n").filter(Boolean);
+    return caps[Math.floor(Math.random() * caps.length)];
+  } catch (e) {
+    console.error("Error loading captions:", e.message);
+    return "Check out this reel!";
+  }
 }
 
 function getRandomHashtags(count = 15) {
-const tags = fs.readFileSync("hashtag.txt", "utf8").split("\n").filter(Boolean);
-const selected = [];
-while (selected.length < count && tags.length) {
-const index = Math.floor(Math.random() * tags.length);
-selected.push(tags.splice(index, 1)[0]);
-}
-return selected.join(" ");
+  try {
+    const tags = fs.readFileSync("hashtag.txt", "utf8").split("\n").filter(Boolean);
+    return tags
+      .sort(() => 0.5 - Math.random())
+      .slice(0, count)
+      .join(" ");
+  } catch (e) {
+    console.error("Error loading hashtags:", e.message);
+    return "#shorts #viral #trending";
+  }
 }
 
+// Overlay text
 function getRandomOverlayText() {
-const overlays = fs.readFileSync("overlay.txt", "utf8").split("\n").filter(Boolean);
-const raw = overlays[Math.floor(Math.random() * overlays.length)];
-return raw.replace(/[:]/g, "$&").replace(/'/g, "'").replace(/"/g, '"');
+  try {
+    const lines = fs.readFileSync("overlay.txt", "utf8").split("\n").filter(Boolean);
+    const raw = lines[Math.floor(Math.random() * lines.length)];
+    return raw.replace(/[:\\]/g, "\\$&").replace(/'/g, "\\'").replace(/"/g, '\\"');
+  } catch (e) {
+    console.error("Error loading overlay text:", e.message);
+    return "Must Watch!";
+  }
 }
 
+// Watermark processor
 function addWatermark(inputPath, outputPath) {
-const overlayText = getRandomOverlayText();
-return new Promise((resolve, reject) => {
-ffmpeg(inputPath)
-.videoFilters([
-{
-filter: "drawtext",
-options: {
-fontfile: path.resolve(__dirname, "fonts/SF_Cartoonist_Hand_Bold.ttf"),
-text: WATERMARK,
-fontsize: 24,
-fontcolor: "black",
-x: "(w-text_w)-10",
-y: "(h-text_h)-20",
-box: 1,
-boxcolor: "white@1.0",
-boxborderw: 5
-}
-},
-{
-filter: "drawtext",
-options: {
-fontfile: path.resolve(__dirname, "fonts/ShinyCrystal-Yq3z4.ttf"),
-text: overlayText,
-fontsize: 30,
-fontcolor: "white",
-borderw: 2,
-bordercolor: "black",
-x: "(w-text_w)/2",
-y: "(h-text_h)/1.1",
-enable: "between(t,1,2)"
-}
-},
-{ filter: "crop", options: "iw0.98:ih0.98" }
-])
-.outputOptions(["-preset veryfast", "-threads 1", "-max_muxing_queue_size 1024"])
-.output(outputPath)
-.on("end", () => resolve(outputPath))
-.on("error", err => reject(err))
-.run();
-});
+  return new Promise((res, rej) => {
+    ffmpeg(inputPath)
+      .videoFilters([
+        {
+          filter: "drawtext",
+          options: {
+            text: WATERMARK,
+            fontsize: 24,
+            fontcolor: "black",
+            x: "(w-text_w)-10",
+            y: "(h-text_h)-20",
+            box: 1,
+            boxcolor: "white@1.0",
+            boxborderw: 5
+          }
+        },
+        {
+          filter: "drawtext",
+          options: {
+            text: getRandomOverlayText(),
+            fontsize: 30,
+            fontcolor: "white",
+            borderw: 2,
+            bordercolor: "black",
+            x: "(w-text_w)/2",
+            y: "(h-text_h)/1.1",
+            enable: "between(t,1,2)"
+          }
+        },
+        { filter: "eq", options: "brightness=0.02:contrast=1.1" },
+        { filter: "crop", options: "iw*0.98:ih*0.98" }
+      ])
+      .outputOptions(["-preset veryfast", "-threads 1"])
+      .output(outputPath)
+      .on("end", () => res(outputPath))
+      .on("error", err => rej(err))
+      .run();
+  });
 }
 
-async function fetchYoutubeShortsLinks(page, channelUrl) {
-await page.goto(channelUrl, { waitUntil: "networkidle2" });
-for (let i = 0; i < 4; i++) {
-await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-await delay(2000);
-}
-const links = await page.$$eval("a", as =>
-as.map(a => a.href).filter(href => href.includes("/shorts/"))
-);
-return [...new Set(links.map(link => link.split('?')[0]))];
+// YouTube downloader
+async function downloadFromYoutube(channelUrl) {
+  try {
+    const shortsUrl = `${channelUrl.replace(/\/$/, "")}/shorts`;
+    const { data: html } = await axios.get(shortsUrl, {
+      headers: { "User-Agent": "Mozilla/5.0" },
+      timeout: 15000
+    });
+
+    const $ = cheerio.load(html);
+    const ids = new Set();
+
+    $("a[href^='/shorts/']").each((_, el) => {
+      const id = $(el).attr("href").split("/")[2];
+      if (id && !usedReels.includes(id)) ids.add(id);
+    });
+
+    if (ids.size === 0) {
+      console.log(`No unused videos found for ${channelUrl}`);
+      return null;
+    }
+
+    const vid = Array.from(ids)[Math.floor(Math.random() * ids.size)];
+    const videoUrl = `https://www.youtube.com/shorts/${vid}`;
+    console.log("🎯 Selected:", videoUrl);
+
+    const info = await ytdl.getInfo(videoUrl);
+    const cleanTitle = info.videoDetails.title
+      .replace(/[^\w\s]/g, "")
+      .substring(0, 50)
+      .replace(/\s+/g, "_");
+    const fileName = `yt_${cleanTitle}_${Date.now()}.mp4`;
+    const outPath = path.join(VIDEO_DIR, fileName);
+
+    return new Promise((resolve, reject) => {
+      ytdl(videoUrl, { quality: "highestvideo" })
+        .pipe(fs.createWriteStream(outPath))
+        .on("finish", () => {
+          console.log("✅ Downloaded:", fileName);
+          resolve({ path: outPath, id: vid });
+        })
+        .on("error", reject);
+    });
+  } catch (e) {
+    console.error("YouTube download failed:", e.message);
+    return null;
+  }
 }
 
-async function downloadYoutubeShort(url, outputPath) {
-return ytdlp(url, { output: outputPath, format: "mp4", quiet: true })
-.then(() => outputPath)
-.catch(err => {
-console.error("❌ yt-dlp error:", err.message);
-return null;
-});
-}
-
+// Instagram uploader
 async function uploadReel(page, videoPath, caption) {
-try {
-console.log("⬆️ Uploading reel...");
+  try {
+    await page.goto("https://www.instagram.com/", { waitUntil: "networkidle2", timeout: 30000 });
+    await page.setViewport({ width: 1280, height: 800 });
+    await delay(4000, 2000);
 
-if (!fs.existsSync(videoPath)) {
-throw new Error(❌ Video file not found at path: ${videoPath});
+    // Create button
+    const createBtn = await page.waitForSelector('svg[aria-label="New post"]', { timeout: 10000 });
+    await createBtn.click();
+    console.log("🆕 Clicked Create");
+    await delay(3000, 1000);
+
+    // File upload
+    const fileInput = await page.waitForSelector('input[type="file"]', { timeout: 5000 });
+    await fileInput.uploadFile(videoPath);
+    console.log("📤 Video file attached");
+    await delay(10000, 3000);
+
+    // Crop handling
+    await page.waitForSelector('div[aria-label="Select crop"]', { timeout: 15000 });
+    await page.click('div[aria-label="Select crop"]');
+    console.log("✅ Clicked crop icon");
+
+    const originalBtn = await page.waitForXPath('//span[text()="Original"]', { timeout: 5000 });
+    await originalBtn.click();
+    console.log("✅ Selected Original aspect");
+    await delay(2000);
+
+    // Navigation
+    const nextBtns = await page.$$x('//div[text()="Next"]');
+    for (let i = 0; i < Math.min(2, nextBtns.length); i++) {
+      await nextBtns[i].click();
+      console.log(`➡️ Clicked Next (${i + 1}/2)`);
+      await delay(4000, 2000);
+    }
+
+    // Caption
+    const captionBox = await page.waitForSelector('div[role="textbox"]', { timeout: 5000 });
+    await captionBox.type(caption, { delay: 30 });
+    console.log("📝 Caption entered");
+    await delay(2000, 1000);
+
+    // Sharing
+    const shareBtn = await page.waitForXPath('//div[text()="Share"]', { timeout: 5000 });
+    await shareBtn.click();
+    console.log("✅ Clicked Share button");
+    await delay(10000, 3000);
+
+    return true;
+  } catch (err) {
+    console.error("Upload error:", err.message);
+    return false;
+  }
 }
 
-await page.goto("https://www.instagram.com/", { waitUntil: "networkidle2" });
-
-await page.setViewport({ width: 1366, height: 900 });
-await delay(5000, 2000); // Random delay between 5-7 seconds
-
-// Click Create
-const createBtn = await page.evaluateHandle(() => {
-const spans = Array.from(document.querySelectorAll("span"));
-return spans.find(span => span.textContent.includes("Create"));
-});
-if (!createBtn) throw new Error("❌ Create button not found");
-await createBtn.click();
-console.log("🆕 Clicked Create");
-await delay(2000, 1000); // Random delay between 2-3 seconds
-
-// Click "Post" in the popup
-await page.evaluate(() => {
-const spans = Array.from(document.querySelectorAll("span"));
-const postBtn = spans.find(span => span.textContent.trim() === "Post");
-if (postBtn) {
-postBtn.click();
-}
-});
-console.log("✅ Brute force click for Post done.");
-await delay(2000, 1000);
-
-const fileInput = await page.$('input[type="file"]');
-if (!fileInput) {
-throw new Error("❌ File input not found — cannot proceed");
+// Cleanup utility
+function cleanupFiles(paths) {
+  paths.forEach(p => {
+    if (p && fs.existsSync(p)) {
+      try {
+        fs.unlinkSync(p);
+        console.log(`🧹 Cleaned up: ${path.basename(p)}`);
+      } catch (e) {
+        console.error("Cleanup error:", e.message);
+      }
+    }
+  });
 }
 
-await fileInput.uploadFile(videoPath);
-console.log("📤 Video file attached");
-await delay(8000, 3000); // Random delay between 8-11 seconds
-
-console.log("🔍 Trying brute force click for OK popup...");
-await page.evaluate(() => {
-const allButtons = Array.from(document.querySelectorAll("button"));
-allButtons.forEach(btn => {
-if (btn.innerText.trim().toUpperCase() === "OK") {
-btn.click();
-}
-});
-});
-await delay(3000, 2000);
-
-await page.waitForSelector('div[aria-label="Select crop"], svg[aria-label="Select crop"]', { visible: true });
-await page.click('div[aria-label="Select crop"], svg[aria-label="Select crop"]');
-console.log("✅ Clicked crop icon");
-
-await page.evaluate(() => {
-const spans = Array.from(document.querySelectorAll('span'));
-const found = spans.find(el => el.innerText.trim() === 'Original');
-if (found) {
-found.click();
-console.log("✅ Clicked Original by brute force");
-}
-});
-
-const nextButtons = await page.$$('div[role="button"]');
-let clickedNext = false;
-for (const button of nextButtons) {
-const text = await page.evaluate(el => el.textContent.trim(), button);
-if (text === "Next") {
-await button.click();
-console.log("➡️ Clicked first Next");
-clickedNext = true;
-await delay(4000, 2000); // Random delay between 4-6 seconds
-break;
-}
-}
-if (!clickedNext) throw new Error("❌ First Next button not found");
-
-const nextButtons2 = await page.$$('div[role="button"]');
-clickedNext = false;
-for (const button of nextButtons2) {
-const text = await page.evaluate(el => el.textContent.trim(), button);
-if (text === "Next") {
-await button.click();
-console.log("➡️ Clicked second Next");
-clickedNext = true;
-await delay(4000, 2000); // Random delay between 4-6 seconds
-break;
-}
-}
-if (!clickedNext) throw new Error("❌ Second Next button not found");
-
-await page.type('div[role="textbox"]', caption, { delay: 30 });
-console.log("📝 Caption entered");
-await delay(2000, 1000);
-
-// Share button
-await page.waitForSelector("div[role='button']");
-const shareBtns = await page.$$('div[role="button"]');
-let clicked = false;
-for (const btn of shareBtns) {
-const txt = await page.evaluate(el => el.innerText.trim(), btn);
-if (txt === "Share") {
-await btn.click();
-console.log("✅ Clicked Share button");
-clicked = true;
-break;
-}
-}
-if (!clicked) console.log("❌ Could not find Share button!");
-
-return true;
-
-} catch (err) {
-console.error("❌ uploadReel error:", err.message);
-return false;
-}
-}
-
-function isSleepTime(date = new Date()) {
-const hours = date.getHours();
-return hours >= 22 || hours < 9;
+// Sleep scheduler
+function isSleepTime(d = new Date()) { 
+  const h = d.getHours();
+  return h >= 22 || h < 9;
 }
 
 async function handleSleepTime() {
-if (!isSleepTime()) return;
-
-console.log("😴 It's sleep time (10 PM - 9 AM)");
-
-// Calculate wake up time (9 AM next day)
-const now = new Date();
-const wakeTime = new Date();
-
-if (now.getHours() >= 22) {
-// Already past 10 PM, sleep until 9 AM next day
-wakeTime.setDate(wakeTime.getDate() + 1);
-}
-wakeTime.setHours(9, 0, 0, 0); // Set to 9 AM
-
-const msUntilWake = wakeTime - now;
-console.log(⏰ Sleeping until ${wakeTime.toLocaleTimeString()} (${Math.round(msUntilWake/60000)} minutes));
-
-await delay(msUntilWake);
-console.log("⏰ Wake up! Resuming operations...");
+  if (!isSleepTime()) return;
+  
+  const now = new Date();
+  const wake = new Date(now);
+  wake.setHours(9, 0, 0, 0);
+  if (now.getHours() >= 22) wake.setDate(wake.getDate() + 1);
+  
+  const sleepDuration = wake - now;
+  console.log(`😴 Sleeping until ${wake.toLocaleTimeString()}...`);
+  await delay(sleepDuration);
 }
 
-function cleanupFiles(paths) {
-for (const file of paths) {
-if (file && fs.existsSync(file)) {
-fs.unlinkSync(file);
-console.log(🧹 Deleted: ${file});
-}
-// ===== END SLEEP TIME FUNCTIONS =====
-
+// Main workflow
 async function main() {
-const browser = await puppeteer.launch({
-headless: "new",
-args: ["--no-sandbox", "--disable-setuid-sandbox", "--start-maximized"]
+  const browser = await puppeteer.launch({
+    headless: "new",
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu"
+    ]
+  });
+  
+  const page = await browser.newPage();
+  await page.setDefaultNavigationTimeout(60000);
+
+  // Session handling
+  if (fs.existsSync(SESSION_FILE)) {
+    try {
+      const cookies = JSON.parse(fs.readFileSync(SESSION_FILE, "utf8"));
+      await page.setCookie(...cookies);
+      console.log("🍪 Session restored");
+    } catch (e) {
+      console.error("Session load error:", e.message);
+    }
+  }
+
+  while (true) {
+    let reelPath, wmPath;
+
+    try {
+      await handleSleepTime();
+
+      // Channel selection
+      const channels = fs.readFileSync(CHANNELS_FILE, "utf8")
+        .split("\n")
+        .map(l => l.trim())
+        .filter(Boolean);
+      
+      if (channels.length === 0) {
+        console.error("No channels available");
+        await delay(600000);
+        continue;
+      }
+
+      const channelUrl = channels[Math.floor(Math.random() * channels.length)];
+      console.log("📡 Selected channel:", channelUrl);
+
+      // Download video
+      const result = await downloadFromYoutube(channelUrl);
+      if (!result) {
+        await delay(180000);
+        continue;
+      }
+
+      reelPath = result.path;
+      wmPath = reelPath.replace(".mp4", "_wm.mp4");
+
+      // Process video
+      await addWatermark(reelPath, wmPath);
+      const caption = `${getRandomCaption()}\n\n${getRandomHashtags()}`;
+
+      // Upload to Instagram
+      const uploadSuccess = await uploadReel(page, wmPath, caption);
+      
+      if (uploadSuccess) {
+        console.log("✅ Upload successful");
+        usedReels.push(result.id);
+        
+        // Save state
+        fs.writeFileSync(USED_REELS_FILE, JSON.stringify(usedReels, null, 2));
+        const cookies = await page.cookies();
+        fs.writeFileSync(SESSION_FILE, JSON.stringify(cookies, null, 2));
+        console.log("💾 State saved");
+      }
+
+      // Schedule next run
+      const nextRun = new Date(Date.now() + 3 * 60 * 60 * 1000);
+      console.log("⏰ Next run at:", nextRun.toLocaleTimeString());
+      await delay(nextRun - new Date());
+
+    } catch (err) {
+      console.error("❌ Critical error:", err.message);
+      await delay(300000);
+    } finally {
+      cleanupFiles([reelPath, wmPath]);
+    }
+  }
+}
+
+// Error handling for main
+main().catch(err => {
+  console.error("Fatal error in main:", err);
+  process.exit(1);
 });
-
-const page = await browser.newPage();
-await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36");
-await page.setViewport({ width: 1366, height: 900, deviceScaleFactor: 1 });
-
-// Load session cookies from GitHub
-try {
-const { data } = await axios.get("https://raw.githubusercontent.com/virkx3/Repost-bot/refs/heads/main/session.json");
-await page.setCookie(...data);
-console.log("🔐 Session loaded from remote URL");
-} catch (error) {
-console.log("❌ Failed to load session from remote URL");
-await browser.close();
-return;
-}
-
-while (true) {
-await handleSleepTime();
-
-let downloadedPath, watermarkedPath;  
-
-try {  
-  // Pick a random YouTube channel  
-  const ytChannel = YT_CHANNELS[Math.floor(Math.random() * YT_CHANNELS.length)];  
-
-  console.log("📺 Fetching shorts from:", ytChannel);  
-  const ytPage = await browser.newPage();  
-  const shortsLinks = await fetchYoutubeShortsLinks(ytPage, ytChannel);  
-  await ytPage.close();  
-
-  const availableLinks = shortsLinks.filter(link => !usedShorts.includes(link));  
-  if (!availableLinks.length) {  
-    console.log("⚠️ No new shorts found");  
-    await delay(60000);  
-    continue;  
-  }  
-
-  const randomShortUrl = availableLinks[Math.floor(Math.random() * availableLinks.length)];  
-  const videoId = randomShortUrl.split("/").pop();  
-  const filename = `${videoId}.mp4`;  
-  downloadedPath = path.join(VIDEO_DIR, filename);  
-
-  console.log("⬇️ Downloading:", randomShortUrl);  
-  const resultPath = await downloadYoutubeShort(randomShortUrl, downloadedPath);  
-  if (!resultPath) continue;  
-
-  // Add watermark  
-  watermarkedPath = resultPath.replace(".mp4", "_wm.mp4");  
-  await addWatermark(resultPath, watermarkedPath);  
-  console.log("💧 Watermark added");  
-
-  // Upload to Instagram  
-  const caption = `${getRandomCaption()}\n\n${getRandomHashtags()}`;  
-  const success = await uploadReel(page, watermarkedPath, caption);  
-
-  if (success) {  
-    usedShorts.push(randomShortUrl);  
-    fs.writeFileSync(USED_SHORTS_FILE, JSON.stringify(usedShorts, null, 2));  
-    console.log("✅ Uploaded and recorded");  
-  }  
-
-  // Wait 3 hours or until 9 AM next day if within sleep time  
-  const now = new Date();  
-  let nextPostTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);  
-  if (nextPostTime.getHours() >= 22 || nextPostTime.getHours() < 9) {  
-    if (nextPostTime.getHours() >= 22) nextPostTime.setDate(nextPostTime.getDate() + 1);  
-    nextPostTime.setHours(9, 0, 0, 0);  
-  }  
-  const waitTime = nextPostTime - Date.now();  
-  console.log(`⏳ Waiting until ${nextPostTime.toLocaleTimeString()} (${Math.round(waitTime / 60000)} mins)`);  
-  await delay(waitTime);  
-} catch (err) {  
-  console.error("❌ Loop error:", err.message);  
-  await delay(180000, 60000); // Wait 3–4 min on error  
-} finally {  
-  cleanupFiles([downloadedPath, watermarkedPath]);  
-}
-
-}
-}
