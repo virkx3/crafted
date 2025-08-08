@@ -42,10 +42,15 @@ RUN apt-get update && \
     xdg-utils \
     libgl1 \
     ffmpeg \
+    chromium \
     && rm -rf /var/lib/apt/lists/*
 
 # Install yt-dlp
 RUN pip3 install --no-cache-dir yt-dlp
+
+# Set Puppeteer config
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 # Create app directory
 WORKDIR /app
@@ -64,7 +69,6 @@ RUN mkdir -p downloads fonts
 
 # Set environment variables
 ENV NODE_ENV=production
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome
 
 # Expose port for health checks
 EXPOSE 3000
