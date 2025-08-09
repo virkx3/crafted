@@ -9,7 +9,6 @@ const ffmpegPath = require("ffmpeg-static");
 const path = require("path");
 const express = require('express');
 const cheerio = require("cheerio");
-const ytdl = require("ytdl-core");
 const { exec } = require("child_process");
 
 // Constants
@@ -17,9 +16,14 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const VIDEO_DIR = "downloads";
 const USED_REELS_FILE = "used_reels.json";
-const WATERMARK = "ig/ramn_preet05";
+const WATERMARK = "ig/iamVirk05";
 const CHANNELS_FILE = "youtube_channels.txt";
 const SESSION_FILE = "session.json";
+
+// Force all date handling to Asia/Kolkata
+process.env.TZ = "Asia/Kolkata";
+console.log("🕒 Timezone set to:", process.env.TZ);
+
 
 // Healthcheck server
 app.get('/', (_, res) => res.send('Bot is alive'));
@@ -67,6 +71,22 @@ function getRandomOverlayText() {
 // Watermark
 function addWatermark(inputPath, outputPath) {
   const overlayText = getRandomOverlayText();
+
+  // 1️⃣ Get original bitrate from file using ffprobe
+  let bitrateKbps = 2500; // fallback if detection fails
+  try {
+    const ffprobeCmd = `ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate -of csv=p=0 "${inputPath}"`;
+    const bitrateBits = parseInt(execSync(ffprobeCmd).toString().trim(), 10);
+    if (!isNaN(bitrateBits) && bitrateBits > 0) {
+      bitrateKbps = Math.round(bitrateBits / 1000); // convert to kbps
+    }
+  } catch (err) {
+    console.warn("⚠️ Could not detect bitrate, using default:", bitrateKbps, "kbps");
+  }
+
+  console.log(`🎯 Using bitrate: ${bitrateKbps} kbps`);
+
+  // 2️⃣ Run ffmpeg watermark + match bitrate
   return new Promise((res, rej) => {
     ffmpeg(inputPath)
       .videoFilters([
@@ -74,100 +94,139 @@ function addWatermark(inputPath, outputPath) {
           filter: "drawtext",
           options: {
             fontfile: path.resolve(__dirname, "fonts/SF_Cartoonist_Hand_Bold.ttf"),
-            text: WATERMARK, fontsize: 24, fontcolor: "black",
-            x: "(w-text_w)-10", y: "(h-text_h)-20",
-            box: 1, boxcolor: "white@1.0", boxborderw: 5
+            text: WATERMARK,
+            fontsize: 24,
+            fontcolor: "black",
+            x: "(w-text_w)-10",
+            y: "(h-text_h)-20",
+            box: 1,
+            boxcolor: "white@1.0",
+            boxborderw: 5
           }
         },
         {
           filter: "drawtext",
           options: {
             fontfile: path.resolve(__dirname, "fonts/ShinyCrystal-Yq3z4.ttf"),
-            text: overlayText, fontsize: 30, fontcolor: "white",
-            borderw: 2, bordercolor: "black",
-            x: "(w-text_w)/2", y: "(h-text_h)/1.1",
+            text: overlayText,
+            fontsize: 30,
+            fontcolor: "white",
+            borderw: 2,
+            bordercolor: "black",
+            x: "(w-text_w)/2",
+            y: "(h-text_h)/1.1",
             enable: "between(t,1,2)"
           }
-        },
-        { filter: "eq", options: "brightness=0.02:contrast=1.1" },
-        { filter: "crop", options: "iw*0.98:ih*0.98" }
+        }
       ])
-      .outputOptions(["-preset veryfast", "-threads 1", "-max_muxing_queue_size 1024"])
-      .output(outputPath)
-      .on("end", () => res(outputPath))
-      .on("error", err => rej(err))
-      .run();
+      .outputOptions([
+  "-c:v libx264",            // H.264 for Instagram
+  "-profile:v high",         // High profile
+  "-level 4.1",               // Compatible with most devices
+  "-pix_fmt yuv420p",         // Required for Instagram
+  "-preset slow",             // Better compression efficiency
+  "-crf 18",                  // Visually lossless quality
+  "-r 30",                    // Force 30fps for IG
+  "-b:v 10M",                 // 10 Mbps target bitrate
+  "-maxrate 15M",             // Avoid too-high peaks
+  "-bufsize 30M",             // Smoother bitrate control
+  "-c:a aac",                 // AAC audio
+  "-b:a 128k",                 // Audio bitrate
+  "-movflags +faststart"      // Faster streaming on IG
+])
+.output(outputPath)
+.on("end", () => res(outputPath))
+.on("error", err => rej(err))
+.run();
   });
 }
+
 
 // YouTube Shorts downloader
-async function getRandomShortUrlFromChannel(channelUrl) {
-  const browser = await puppeteer.launch({ headless: "new" });
-  const page = await browser.newPage();
-  await page.goto(`${channelUrl}/shorts`, { waitUntil: "networkidle2" });
-
-  const videoUrls = await page.evaluate(() => {
-    const anchors = Array.from(document.querySelectorAll("a"));
-    return anchors
-      .map((a) => a.href)
-      .filter((href) => href.includes("/shorts/"));
+async function downloadFromYtshortsdl(channelUrl, usedLinks) {
+  const browser = await puppeteer.launch({
+    headless: "new",
+    args: ["--no-sandbox"]
   });
-
-  await browser.close();
-
-  if (!videoUrls.length) throw new Error("No Shorts found");
-  const random = videoUrls[Math.floor(Math.random() * videoUrls.length)];
-  return `https://www.youtube.com${new URL(random).pathname}`;
-}
-
-async function downloadFromYoutube(channelUrl) {
-  const browser = await puppeteer.launch({ headless: "new", args: ["--no-sandbox"] });
   const page = await browser.newPage();
+
   try {
-    const shortsPage = channelUrl.replace(/\/$/, "") + "/shorts";
-    await page.goto(shortsPage, { waitUntil: "networkidle2", timeout: 60000 });
-
+    // 1️⃣ Get a new random Shorts URL
+    await page.goto(`${channelUrl}/shorts`, { waitUntil: "networkidle2", timeout: 60000 });
     await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-    await new Promise(r => setTimeout(r, 2000));
+    await delay(2000);
 
-    const shortUrls = await page.evaluate(() => {
-      return Array.from(new Set(Array.from(document.querySelectorAll("a"))
+    const allLinks = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("a"))
         .map(a => a.href)
-        .filter(href => href.includes("/shorts/"))));
+        .filter(href => href.includes("/shorts/"))
+    );
+
+    const newLinks = allLinks.filter(link => !usedLinks.includes(link));
+    if (!newLinks.length) throw new Error("No new Shorts found");
+
+    const selectedUrl = newLinks[Math.floor(Math.random() * newLinks.length)];
+    console.log("🎯 Selected Shorts:", selectedUrl);
+
+    // 2️⃣ Setup download path
+    const downloadPath = path.resolve(__dirname, "downloads");
+    if (!fs.existsSync(downloadPath)) fs.mkdirSync(downloadPath);
+
+    const client = await page.target().createCDPSession();
+    await client.send("Page.setDownloadBehavior", {
+      behavior: "allow",
+      downloadPath: downloadPath
     });
+	
+	await delay(5000);
 
-    if (!shortUrls.length) throw new Error("No Shorts found");
+    // 3️⃣ Go to ytshortsdl.co
+    await page.goto("https://ytshortsdl.co/", { waitUntil: "networkidle2", timeout: 60000 });
+    await delay(5000); // wait full load
 
-    const selectedUrl = shortUrls[Math.floor(Math.random() * shortUrls.length)];
-    console.log("🎯 Selected:", selectedUrl);
+    await page.type('input[name="video"]', selectedUrl);
+    await delay(1000);
+    await page.click('form div:nth-of-type(2) button:nth-of-type(1)');
+    console.log("✅ Submitted to ytshortsdl");
 
-    const output = `video_${Date.now()}.mp4`;
-    const ytDlpPath = path.join(__dirname, 'yt-dlp');
-fs.chmodSync(ytDlpPath, 0o755);  // Fix for Railway
+    await delay(25000); // wait result generation
 
-const downloadCmd = `${ytDlpPath} -f mp4 -o "${path.join(VIDEO_DIR, output)}" "${selectedUrl}"`;
-
-
-    await new Promise((resolve, reject) => {
-      exec(downloadCmd, (error, stdout, stderr) => {
-        if (error) {
-          console.error("yt-dlp error:", stderr);
-          reject(error);
-        } else {
-          resolve(stdout);
-        }
+    console.log("⬇️ Clicking download button...");
+    await page.evaluate(() => {
+      const btns = document.querySelectorAll("button");
+      btns.forEach(b => {
+        if (b.innerText.toLowerCase().includes("download")) b.click();
       });
     });
 
-    return path.join(VIDEO_DIR, output);
+    // 4️⃣ Retry check pattern
+    const waitTimes = [10000, 15000, 20000]; // 10s, 15s, 20s
+    let downloadedFile = null;
 
-  } catch (e) {
-    console.error("❌ downloadFromYoutube failed:", e.message);
+    for (const waitTime of waitTimes) {
+      await delay(waitTime);
+      const files = fs.readdirSync(downloadPath).filter(f => f.endsWith(".mp4"));
+      if (files.length) {
+        downloadedFile = path.join(downloadPath, files[0]);
+        break;
+      }
+      console.log(`⚠️ No file yet, retrying after ${waitTime / 1000}s...`);
+    }
+
+    if (!downloadedFile) throw new Error("❌ File not downloaded after retries");
+    console.log("✅ Video downloaded:", path.basename(downloadedFile));
+
+    return downloadedFile;
+
+  } catch (err) {
+    console.error("❌ downloadFromYtshortsdl failed:", err.message);
     return null;
   } finally {
     await browser.close();
   }
 }
+
+
 
 
 // Cleanup
@@ -179,7 +238,7 @@ function cleanupFiles(paths) {
 
 function isSleepTime(d = new Date()) {
   const h = d.getHours();
-  return h >= 22 || h < 9;
+  return h >= 22 || h < 8;
 }
 async function handleSleepTime() {
   if (!isSleepTime()) return;
@@ -339,7 +398,7 @@ async function main() {
       const channelUrl = channels[Math.floor(Math.random() * channels.length)];
       console.log("📡 Selected YouTube Channel:", channelUrl);
 
-      reelPath = await downloadFromYoutube(channelUrl);
+      reelPath = await downloadFromYtshortsdl(channelUrl, usedReels);
       if (!reelPath) {
         console.error("❌ Failed to download video, retrying in 3 mins...");
         await delay(180000);
@@ -348,6 +407,7 @@ async function main() {
 
       wmPath = reelPath.replace(".mp4", "_wm.mp4");
       await addWatermark(reelPath, wmPath);
+
 
       const caption = `${getRandomCaption()}\n\n${getRandomHashtags()}`;
       const uploadSuccess = await uploadReel(page, wmPath, caption);
