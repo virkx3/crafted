@@ -69,45 +69,33 @@ function getRandomOverlayText() {
 }
 
 // Watermark
-function addWatermark(inputPath, outputPath) {
+function addWatermark(input, output) {
   const overlayText = getRandomOverlayText();
 
-  // 1️⃣ Get original bitrate from file using ffprobe
-  let bitrateKbps = 2500; // fallback if detection fails
-  try {
-    const ffprobeCmd = `ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate -of csv=p=0 "${inputPath}"`;
-    const bitrateBits = parseInt(execSync(ffprobeCmd).toString().trim(), 10);
-    if (!isNaN(bitrateBits) && bitrateBits > 0) {
-      bitrateKbps = Math.round(bitrateBits / 1000); // convert to kbps
-    }
-  } catch (err) {
-    console.warn("⚠️ Could not detect bitrate, using default:", bitrateKbps, "kbps");
-  }
-
-  console.log(`🎯 Using bitrate: ${bitrateKbps} kbps`);
-
-  // 2️⃣ Run ffmpeg watermark + match bitrate
-  return new Promise((res, rej) => {
-    ffmpeg(inputPath)
-      .videoFilters([
+  return new Promise((resolve, reject) => {
+    ffmpeg()
+      .input(input)
+      .complexFilter([
         {
           filter: "drawtext",
           options: {
             fontfile: path.resolve(__dirname, "fonts/SF_Cartoonist_Hand_Bold.ttf"),
             text: WATERMARK,
             fontsize: 24,
-            fontcolor: "black",
+            fontcolor: "white",
             x: "(w-text_w)-10",
             y: "(h-text_h)-20",
             box: 1,
-            boxcolor: "white@1.0",
-            boxborderw: 5
-          }
+            boxcolor: "black@1.0",
+            boxborderw: 5,
+          },
+          inputs: "[0:v]",
+          outputs: "v1",
         },
         {
           filter: "drawtext",
           options: {
-            fontfile: path.resolve(__dirname, "fonts/ShinyCrystal-Yq3z4.ttf"),
+            fontfile: path.resolve(__dirname, "fonts/RubikGemstones-Regular.ttf"),
             text: overlayText,
             fontsize: 30,
             fontcolor: "white",
@@ -115,40 +103,62 @@ function addWatermark(inputPath, outputPath) {
             bordercolor: "black",
             x: "(w-text_w)/2",
             y: "(h-text_h)/1.1",
-            enable: "between(t,1,2)"
-          }
-        }
+            enable: "between(t,1,2)",
+          },
+          inputs: "v1",
+          outputs: "v2",
+        },
       ])
       .outputOptions([
-  "-c:v libx264",            // H.264 for Instagram
-  "-profile:v high",         // High profile
-  "-level 4.1",               // Compatible with most devices
-  "-pix_fmt yuv420p",         // Required for Instagram
-  "-preset slow",             // Better compression efficiency
-  "-crf 18",                  // Visually lossless quality
-  "-r 30",                    // Force 30fps for IG
-  "-b:v 10M",                 // 10 Mbps target bitrate
-  "-maxrate 15M",             // Avoid too-high peaks
-  "-bufsize 30M",             // Smoother bitrate control
-  "-c:a aac",                 // AAC audio
-  "-b:a 128k",                 // Audio bitrate
-  "-movflags +faststart"      // Faster streaming on IG
-])
-.output(outputPath)
-.on("end", () => res(outputPath))
-.on("error", err => rej(err))
-.run();
+        "-map [v2]",                // Use the filtered video stream
+        "-map 0:a?",                // Include audio if exists
+        "-c:v libx264",             // Encode video with H.264
+        "-preset veryfast",         // Speed vs quality
+        "-crf 23",                  // Quality (lower is better)
+        "-c:a copy",                // Copy audio without re-encoding
+        "-threads 1",               // Limit threads to avoid issues on Railway/Docker
+        "-max_muxing_queue_size 1024", // Prevent muxing errors
+        "-movflags +faststart",     // Optimize for web playback
+      ])
+      .on("end", () => {
+        console.log("✅ ffmpeg finished");
+        resolve(output);
+      })
+      .on("error", (err) => {
+        console.error("❌ ffmpeg error:", err.message);
+        reject(err);
+      })
+      .save(output);
   });
 }
 
 
 // YouTube Shorts downloader
 async function downloadFromYtshortsdl(channelUrl, usedLinks) {
+  const proxy = {
+    type: "http",
+    ip: "isp.decodo.com",
+    port: "10001",
+    username: "spg1c4utf1",
+    password: "9VUm5exYtkh~iS8h6y"
+  };
+
+  // Launch Puppeteer with proxy only for this step
   const browser = await puppeteer.launch({
     headless: "new",
-    args: ["--no-sandbox"]
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      `--proxy-server=${proxy.type}://${proxy.ip}:${proxy.port}`
+    ]
   });
   const page = await browser.newPage();
+
+  // Authenticate proxy
+  await page.authenticate({
+    username: proxy.username,
+    password: proxy.password
+  });
 
   try {
     // 1️⃣ Get a new random Shorts URL
@@ -177,8 +187,6 @@ async function downloadFromYtshortsdl(channelUrl, usedLinks) {
       behavior: "allow",
       downloadPath: downloadPath
     });
-	
-	await delay(5000);
 
     // 3️⃣ Go to ytshortsdl.co
     await page.goto("https://ytshortsdl.co/", { waitUntil: "networkidle2", timeout: 60000 });
